@@ -1,5 +1,5 @@
 // StarTrade AI Market Generation Service
-// Uses Claude/GPT to analyze news and generate betting markets
+// Uses OpenAI GPT-4 to analyze news and generate betting markets
 
 import { supabase } from '@/lib/supabase';
 import type { AIMarketSuggestion, Celebrity, MarketCategory } from '@/types/database';
@@ -43,7 +43,7 @@ interface AIMarketResponse {
 // =====================================================
 
 const AI_CONFIG = {
-  model: 'claude-3-sonnet-20240229', // or 'gpt-4-turbo-preview'
+  model: 'gpt-4-turbo-preview',
   maxTokens: 1024,
   temperature: 0.7,
 };
@@ -137,7 +137,7 @@ export async function storeNewsArticle(article: NewsArticle): Promise<string | n
 export async function generateMarketFromNews(
   article: NewsArticle,
   celebrities: Celebrity[],
-  anthropicApiKey: string
+  openaiApiKey: string
 ): Promise<AIMarketResponse | null> {
   const celebrityNames = celebrities.map(c => c.name).join(', ');
   
@@ -183,12 +183,11 @@ RESPOND IN THIS EXACT JSON FORMAT:
 If the headline cannot generate a valid market, set is_bettable to false and explain why in reasoning.`;
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': anthropicApiKey,
-        'anthropic-version': '2023-06-01',
+        'Authorization': `Bearer ${openaiApiKey}`,
       },
       body: JSON.stringify({
         model: AI_CONFIG.model,
@@ -196,32 +195,31 @@ If the headline cannot generate a valid market, set is_bettable to false and exp
         temperature: AI_CONFIG.temperature,
         messages: [
           {
+            role: 'system',
+            content: 'You are an expert at analyzing entertainment news and creating engaging prediction markets. Always respond with valid JSON.',
+          },
+          {
             role: 'user',
             content: prompt,
           },
         ],
+        response_format: { type: 'json_object' },
       }),
     });
 
     if (!response.ok) {
-      throw new Error(`Anthropic API error: ${response.statusText}`);
+      const error = await response.json();
+      throw new Error(`OpenAI API error: ${error.error?.message || response.statusText}`);
     }
 
     const data = await response.json();
-    const content = data.content[0]?.text;
+    const content = data.choices[0]?.message?.content;
     
     if (!content) {
       return null;
     }
 
-    // Parse JSON from response
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.error('No JSON found in AI response');
-      return null;
-    }
-
-    return JSON.parse(jsonMatch[0]) as AIMarketResponse;
+    return JSON.parse(content) as AIMarketResponse;
   } catch (error) {
     console.error('AI generation failed:', error);
     return null;
@@ -412,7 +410,7 @@ export async function adjustMarketOdds(marketId: string): Promise<void> {
  * Process all unprocessed news articles
  */
 export async function processNewsQueue(
-  anthropicApiKey: string
+  openaiApiKey: string
 ): Promise<number> {
   // Get unprocessed articles
   const { data: articles, error } = await supabase
@@ -443,7 +441,7 @@ export async function processNewsQueue(
         publishedAt: article.published_at,
       },
       celebrities || [],
-      anthropicApiKey
+      openaiApiKey
     );
 
     if (aiResponse && aiResponse.is_bettable) {

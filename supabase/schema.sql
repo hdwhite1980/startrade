@@ -17,19 +17,19 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     -- Wallet
     wallet_address TEXT UNIQUE,
     -- USDC Balances (stored as cents to avoid floating point issues)
-    usdc_balance BIGINT NOT NULL DEFAULT 0, -- Available balance in cents ($1 = 100)
-    escrowed_balance BIGINT NOT NULL DEFAULT 0, -- Locked in active bets
+    usdc_balance BIGINT NOT NULL DEFAULT 0,
+    escrowed_balance BIGINT NOT NULL DEFAULT 0,
     lifetime_deposited BIGINT NOT NULL DEFAULT 0,
     lifetime_withdrawn BIGINT NOT NULL DEFAULT 0,
     lifetime_winnings BIGINT NOT NULL DEFAULT 0,
     lifetime_losses BIGINT NOT NULL DEFAULT 0,
     -- Limits (in cents)
-    deposit_limit BIGINT NOT NULL DEFAULT 10000, -- $100 default
-    betting_limit BIGINT NOT NULL DEFAULT 2500, -- $25 max per bet
+    deposit_limit BIGINT NOT NULL DEFAULT 10000,
+    betting_limit BIGINT NOT NULL DEFAULT 2500,
     -- KYC Status
     kyc_status TEXT NOT NULL DEFAULT 'NONE' CHECK (kyc_status IN ('NONE', 'PENDING', 'VERIFIED', 'REJECTED')),
     kyc_verified_at TIMESTAMPTZ,
-    kyc_provider TEXT, -- 'persona', 'jumio', etc.
+    kyc_provider TEXT,
     kyc_reference_id TEXT,
     -- Stats
     total_bets INTEGER DEFAULT 0,
@@ -46,34 +46,8 @@ CREATE TABLE IF NOT EXISTS user_profiles (
 );
 
 -- =====================================================
--- TRANSACTIONS TABLE
--- All USDC deposits/withdrawals
--- =====================================================
-CREATE TABLE IF NOT EXISTS transactions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
-    type TEXT NOT NULL CHECK (type IN ('DEPOSIT', 'WITHDRAWAL', 'BET_PLACED', 'BET_WON', 'BET_LOST', 'BET_CANCELLED', 'CHALLENGE_STAKE', 'CHALLENGE_WON', 'CHALLENGE_LOST', 'REFUND')),
-    amount BIGINT NOT NULL, -- In cents
-    -- Blockchain data
-    tx_hash TEXT,
-    block_number BIGINT,
-    from_address TEXT,
-    to_address TEXT,
-    -- Status
-    status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'CONFIRMED', 'FAILED', 'CANCELLED')),
-    confirmations INTEGER DEFAULT 0,
-    -- Reference
-    reference_type TEXT, -- 'bet', 'challenge', 'market'
-    reference_id UUID,
-    -- Metadata
-    notes TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    confirmed_at TIMESTAMPTZ
-);
-
--- =====================================================
 -- CELEBRITIES TABLE
--- Entertainment figures with metrics
+-- Public figures with social metrics for market creation
 -- =====================================================
 CREATE TABLE IF NOT EXISTS celebrities (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -82,7 +56,6 @@ CREATE TABLE IF NOT EXISTS celebrities (
     image_url TEXT,
     category TEXT NOT NULL DEFAULT 'Music' CHECK (category IN ('Music', 'Film', 'Sports', 'Social Media', 'TV', 'Gaming')),
     bio TEXT,
-    -- Entertainment metrics from APIs
     metrics JSONB NOT NULL DEFAULT '{
         "spotify_streams": 0,
         "youtube_views": 0,
@@ -96,55 +69,65 @@ CREATE TABLE IF NOT EXISTS celebrities (
     }'::jsonb,
     -- Betting stats
     total_markets INTEGER DEFAULT 0,
-    total_volume BIGINT DEFAULT 0, -- In cents
+    total_volume BIGINT DEFAULT 0,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- =====================================================
+-- TRANSACTIONS TABLE
+-- =====================================================
+CREATE TABLE IF NOT EXISTS transactions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
+    type TEXT NOT NULL CHECK (type IN ('DEPOSIT', 'WITHDRAWAL', 'BET_PLACED', 'BET_WON', 'BET_LOST', 'BET_CANCELLED', 'CHALLENGE_STAKE', 'CHALLENGE_WON', 'CHALLENGE_LOST', 'REFUND')),
+    amount BIGINT NOT NULL,
+    tx_hash TEXT,
+    block_number BIGINT,
+    from_address TEXT,
+    to_address TEXT,
+    status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'CONFIRMED', 'FAILED', 'CANCELLED')),
+    confirmations INTEGER DEFAULT 0,
+    reference_type TEXT,
+    reference_id UUID,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    confirmed_at TIMESTAMPTZ
+);
+
+-- =====================================================
 -- MARKETS TABLE
--- Prediction markets (AI-generated or manual)
 -- =====================================================
 CREATE TABLE IF NOT EXISTS markets (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     celebrity_id UUID REFERENCES celebrities(id) ON DELETE SET NULL,
-    -- Market details
     title TEXT NOT NULL,
     description TEXT,
     category TEXT NOT NULL DEFAULT 'MUSIC' CHECK (category IN ('MUSIC', 'FILM', 'SPORTS', 'SOCIAL', 'AWARDS', 'CHARTS', 'STREAMING', 'OTHER')),
-    -- Status
     status TEXT NOT NULL DEFAULT 'UPCOMING' CHECK (status IN ('UPCOMING', 'ACTIVE', 'CLOSED', 'RESOLVED', 'CANCELLED')),
-    -- Odds (stored as basis points, 5000 = 50%)
     yes_odds INTEGER NOT NULL DEFAULT 5000 CHECK (yes_odds >= 100 AND yes_odds <= 9900),
     no_odds INTEGER NOT NULL DEFAULT 5000 CHECK (no_odds >= 100 AND no_odds <= 9900),
     initial_yes_odds INTEGER NOT NULL DEFAULT 5000,
     initial_no_odds INTEGER NOT NULL DEFAULT 5000,
-    -- Pool amounts (in cents)
     yes_pool BIGINT NOT NULL DEFAULT 0,
     no_pool BIGINT NOT NULL DEFAULT 0,
     total_volume BIGINT NOT NULL DEFAULT 0,
     total_bets INTEGER NOT NULL DEFAULT 0,
-    -- Liquidity requirements
-    min_pool_size BIGINT NOT NULL DEFAULT 10000, -- $100 minimum on each side
-    -- Timing
+    min_pool_size BIGINT NOT NULL DEFAULT 10000,
     opens_at TIMESTAMPTZ DEFAULT NOW(),
     closes_at TIMESTAMPTZ NOT NULL,
     resolves_at TIMESTAMPTZ NOT NULL,
-    -- Resolution
-    resolved_outcome BOOLEAN, -- true = YES wins, false = NO wins, null = unresolved
+    resolved_outcome BOOLEAN,
     resolution_source TEXT,
     resolution_notes TEXT,
     resolved_by UUID REFERENCES auth.users(id),
     resolved_at TIMESTAMPTZ,
-    -- AI Generation
     ai_generated BOOLEAN DEFAULT false,
     ai_confidence INTEGER CHECK (ai_confidence >= 0 AND ai_confidence <= 100),
     ai_reasoning TEXT,
-    -- Source
     source_headline TEXT,
     source_url TEXT,
-    -- Metadata
     featured BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -152,65 +135,51 @@ CREATE TABLE IF NOT EXISTS markets (
 
 -- =====================================================
 -- BETS TABLE
--- User bets on markets (Parimutuel system)
 -- =====================================================
 CREATE TABLE IF NOT EXISTS bets (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
     market_id UUID NOT NULL REFERENCES markets(id) ON DELETE CASCADE,
-    -- Bet details
     side TEXT NOT NULL CHECK (side IN ('YES', 'NO')),
-    amount BIGINT NOT NULL CHECK (amount >= 100 AND amount <= 2500), -- $1 min, $25 max in cents
-    odds_at_placement INTEGER NOT NULL, -- Odds when bet was placed (basis points)
-    -- Potential payout (calculated at placement, may change with parimutuel)
+    amount BIGINT NOT NULL CHECK (amount >= 100 AND amount <= 2500),
+    odds_at_placement INTEGER NOT NULL,
     potential_payout BIGINT NOT NULL,
-    actual_payout BIGINT, -- Set when resolved
-    -- Status
+    actual_payout BIGINT,
     status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'WON', 'LOST', 'CANCELLED', 'REFUNDED')),
-    -- Timestamps
     created_at TIMESTAMPTZ DEFAULT NOW(),
     resolved_at TIMESTAMPTZ
 );
 
 -- =====================================================
 -- CHALLENGES TABLE (Beef Mode - H2H)
--- Direct user-to-user challenges
 -- =====================================================
 CREATE TABLE IF NOT EXISTS challenges (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     market_id UUID NOT NULL REFERENCES markets(id) ON DELETE CASCADE,
-    -- Challenger (initiator)
     challenger_id UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
     challenger_side TEXT NOT NULL CHECK (challenger_side IN ('YES', 'NO')),
-    challenger_amount BIGINT NOT NULL CHECK (challenger_amount >= 100), -- Min $1
-    -- Opponent
+    challenger_amount BIGINT NOT NULL CHECK (challenger_amount >= 100),
     opponent_id UUID REFERENCES user_profiles(id) ON DELETE SET NULL,
     opponent_accepted_at TIMESTAMPTZ,
-    -- Stakes
-    total_pot BIGINT NOT NULL, -- Both sides combined
-    platform_fee BIGINT NOT NULL DEFAULT 0, -- 5% fee
-    winner_payout BIGINT NOT NULL, -- Total pot minus fee
-    -- Status
+    total_pot BIGINT NOT NULL,
+    platform_fee BIGINT NOT NULL DEFAULT 0,
+    winner_payout BIGINT NOT NULL,
     status TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'MATCHED', 'RESOLVED', 'CANCELLED', 'EXPIRED')),
     winner_id UUID REFERENCES user_profiles(id),
-    -- Timing
-    expires_at TIMESTAMPTZ NOT NULL, -- Challenge expires if not matched
+    expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     resolved_at TIMESTAMPTZ
 );
 
 -- =====================================================
 -- AI MARKET SUGGESTIONS TABLE
--- AI-generated market suggestions for review
 -- =====================================================
 CREATE TABLE IF NOT EXISTS ai_market_suggestions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    -- Source
     source_headline TEXT NOT NULL,
     source_url TEXT,
     source_published_at TIMESTAMPTZ,
     source_outlet TEXT,
-    -- Suggested market
     suggested_title TEXT NOT NULL,
     suggested_description TEXT,
     suggested_category TEXT NOT NULL,
@@ -219,72 +188,56 @@ CREATE TABLE IF NOT EXISTS ai_market_suggestions (
     suggested_no_odds INTEGER NOT NULL DEFAULT 5000,
     suggested_closes_at TIMESTAMPTZ,
     suggested_resolves_at TIMESTAMPTZ,
-    -- AI Analysis
     ai_confidence INTEGER NOT NULL CHECK (ai_confidence >= 0 AND ai_confidence <= 100),
     ai_reasoning TEXT NOT NULL,
     ai_viral_score INTEGER CHECK (ai_viral_score >= 0 AND ai_viral_score <= 10),
-    -- Resolution criteria
-    resolution_criteria JSONB, -- How to verify outcome
-    -- Review
+    resolution_criteria JSONB,
     status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'AUTO_PUBLISHED')),
     reviewed_by UUID REFERENCES auth.users(id),
     reviewed_at TIMESTAMPTZ,
     rejection_reason TEXT,
-    -- If approved, link to created market
     market_id UUID REFERENCES markets(id),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- =====================================================
 -- AI INSIGHTS TABLE
--- Real-time AI analysis and alerts
 -- =====================================================
 CREATE TABLE IF NOT EXISTS ai_insights (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     market_id UUID REFERENCES markets(id) ON DELETE CASCADE,
     celebrity_id UUID REFERENCES celebrities(id) ON DELETE CASCADE,
-    -- Insight
     type TEXT NOT NULL CHECK (type IN ('ODDS_CHANGE', 'TREND_ALERT', 'BREAKING_NEWS', 'CONFIDENCE_UPDATE', 'MARKET_ANALYSIS')),
     title TEXT NOT NULL,
     description TEXT NOT NULL,
-    -- Data
-    old_value JSONB, -- Previous state
-    new_value JSONB, -- New state
-    change_magnitude INTEGER, -- Percentage change if applicable
-    -- Importance
+    old_value JSONB,
+    new_value JSONB,
+    change_magnitude INTEGER,
     priority TEXT NOT NULL DEFAULT 'NORMAL' CHECK (priority IN ('LOW', 'NORMAL', 'HIGH', 'URGENT')),
-    -- Display
-    emoji TEXT, -- For notifications
+    emoji TEXT,
     is_read BOOLEAN DEFAULT false,
-    -- Timestamps
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    expires_at TIMESTAMPTZ -- When insight is no longer relevant
+    expires_at TIMESTAMPTZ
 );
 
 -- =====================================================
 -- NEWS FEED TABLE
--- Ingested entertainment news for AI processing
 -- =====================================================
 CREATE TABLE IF NOT EXISTS news_feed (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    -- Source
     headline TEXT NOT NULL,
     summary TEXT,
     url TEXT UNIQUE NOT NULL,
     source_outlet TEXT,
     published_at TIMESTAMPTZ,
-    -- Classification
     category TEXT,
-    celebrities TEXT[], -- Names mentioned
-    celebrity_ids UUID[], -- Matched celebrity IDs
-    -- AI Processing
+    celebrities TEXT[],
+    celebrity_ids UUID[],
     processed BOOLEAN DEFAULT false,
-    processable BOOLEAN, -- Can this generate a market?
-    ai_analysis JSONB, -- Full AI response
-    -- Market generation
+    processable BOOLEAN,
+    ai_analysis JSONB,
     market_generated BOOLEAN DEFAULT false,
     suggestion_id UUID REFERENCES ai_market_suggestions(id),
-    -- Timestamps
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -316,8 +269,6 @@ CREATE INDEX IF NOT EXISTS idx_news_feed_processed ON news_feed(processed);
 -- =====================================================
 -- TRIGGERS
 -- =====================================================
-
--- Updated at trigger
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -372,7 +323,6 @@ DECLARE
     new_yes_odds INTEGER;
     new_no_odds INTEGER;
 BEGIN
-    -- Update pool
     IF NEW.side = 'YES' THEN
         UPDATE markets SET 
             yes_pool = yes_pool + NEW.amount,
@@ -387,7 +337,6 @@ BEGIN
         WHERE id = NEW.market_id;
     END IF;
     
-    -- Recalculate odds
     SELECT * INTO new_yes_odds, new_no_odds FROM calculate_odds(NEW.market_id);
     
     UPDATE markets SET 
@@ -420,17 +369,14 @@ DECLARE
     payout_per_cent DECIMAL(20, 10);
     user_payout BIGINT;
 BEGIN
-    -- Get market
     SELECT * INTO market_record FROM markets WHERE id = market_id_param AND status = 'CLOSED';
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Market not found or not in CLOSED status';
     END IF;
     
-    -- Calculate platform fee (4%)
     platform_fee := (market_record.total_volume * 4) / 100;
     payout_pool := market_record.total_volume - platform_fee;
     
-    -- Calculate payout per cent bet on winning side
     IF outcome = true THEN
         IF market_record.yes_pool > 0 THEN
             payout_per_cent := payout_pool::DECIMAL / market_record.yes_pool;
@@ -445,7 +391,6 @@ BEGIN
         END IF;
     END IF;
     
-    -- Update winning bets
     FOR bet_record IN 
         SELECT * FROM bets 
         WHERE market_id = market_id_param 
@@ -454,14 +399,12 @@ BEGIN
     LOOP
         user_payout := (bet_record.amount * payout_per_cent)::BIGINT;
         
-        -- Update bet
         UPDATE bets SET 
             status = 'WON',
             actual_payout = user_payout,
             resolved_at = NOW()
         WHERE id = bet_record.id;
         
-        -- Credit user
         UPDATE user_profiles SET
             usdc_balance = usdc_balance + user_payout,
             escrowed_balance = escrowed_balance - bet_record.amount,
@@ -469,12 +412,10 @@ BEGIN
             winning_bets = winning_bets + 1
         WHERE id = bet_record.user_id;
         
-        -- Record transaction
         INSERT INTO transactions (user_id, type, amount, reference_type, reference_id, status)
         VALUES (bet_record.user_id, 'BET_WON', user_payout, 'bet', bet_record.id, 'CONFIRMED');
     END LOOP;
     
-    -- Update losing bets
     FOR bet_record IN 
         SELECT * FROM bets 
         WHERE market_id = market_id_param 
@@ -487,18 +428,15 @@ BEGIN
             resolved_at = NOW()
         WHERE id = bet_record.id;
         
-        -- Update user stats (escrow already deducted)
         UPDATE user_profiles SET
             escrowed_balance = escrowed_balance - bet_record.amount,
             lifetime_losses = lifetime_losses + bet_record.amount
         WHERE id = bet_record.user_id;
         
-        -- Record transaction
         INSERT INTO transactions (user_id, type, amount, reference_type, reference_id, status)
         VALUES (bet_record.user_id, 'BET_LOST', bet_record.amount, 'bet', bet_record.id, 'CONFIRMED');
     END LOOP;
     
-    -- Update market
     UPDATE markets SET
         status = 'RESOLVED',
         resolved_outcome = outcome,
@@ -508,7 +446,6 @@ BEGIN
         resolved_at = NOW()
     WHERE id = market_id_param;
     
-    -- Update user accuracy stats
     UPDATE user_profiles up SET
         total_bets = (SELECT COUNT(*) FROM bets WHERE user_id = up.id AND status IN ('WON', 'LOST')),
         prediction_accuracy = (
@@ -545,28 +482,23 @@ DECLARE
     current_odds INTEGER;
     potential_payout BIGINT;
 BEGIN
-    -- Validate user
     SELECT * INTO user_record FROM user_profiles WHERE id = user_id_param;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'User not found';
     END IF;
     
-    -- Check self-exclusion
     IF user_record.self_excluded_until IS NOT NULL AND user_record.self_excluded_until > NOW() THEN
         RAISE EXCEPTION 'Account is self-excluded until %', user_record.self_excluded_until;
     END IF;
     
-    -- Check balance
     IF user_record.usdc_balance < amount_param THEN
         RAISE EXCEPTION 'Insufficient balance';
     END IF;
     
-    -- Check bet limits
     IF amount_param > user_record.betting_limit THEN
         RAISE EXCEPTION 'Bet exceeds maximum limit of $%', user_record.betting_limit / 100;
     END IF;
     
-    -- Validate market
     SELECT * INTO market_record FROM markets WHERE id = market_id_param AND status = 'ACTIVE';
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Market not available for betting';
@@ -576,28 +508,23 @@ BEGIN
         RAISE EXCEPTION 'Market is closed for betting';
     END IF;
     
-    -- Get current odds
     IF side_param = 'YES' THEN
         current_odds := market_record.yes_odds;
     ELSE
         current_odds := market_record.no_odds;
     END IF;
     
-    -- Calculate potential payout (parimutuel - this is estimated)
     potential_payout := (amount_param * 10000) / current_odds;
     
-    -- Deduct from user balance, add to escrow
     UPDATE user_profiles SET
         usdc_balance = usdc_balance - amount_param,
         escrowed_balance = escrowed_balance + amount_param
     WHERE id = user_id_param;
     
-    -- Create bet
     INSERT INTO bets (user_id, market_id, side, amount, odds_at_placement, potential_payout)
     VALUES (user_id_param, market_id_param, side_param, amount_param, current_odds, potential_payout)
     RETURNING id INTO new_bet_id;
     
-    -- Record transaction
     INSERT INTO transactions (user_id, type, amount, reference_type, reference_id, status)
     VALUES (user_id_param, 'BET_PLACED', amount_param, 'bet', new_bet_id, 'CONFIRMED');
     
@@ -608,7 +535,6 @@ $$ LANGUAGE plpgsql;
 -- =====================================================
 -- ROW LEVEL SECURITY
 -- =====================================================
-
 ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE celebrities ENABLE ROW LEVEL SECURITY;
@@ -619,23 +545,17 @@ ALTER TABLE ai_market_suggestions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_insights ENABLE ROW LEVEL SECURITY;
 ALTER TABLE news_feed ENABLE ROW LEVEL SECURITY;
 
--- User profiles: Users see own, public sees limited
+-- User profiles
 CREATE POLICY "Users can view own full profile"
-    ON user_profiles FOR SELECT
-    USING (auth.uid() = id);
-
+    ON user_profiles FOR SELECT USING (auth.uid() = id);
 CREATE POLICY "Users can update own profile"
-    ON user_profiles FOR UPDATE
-    USING (auth.uid() = id);
-
+    ON user_profiles FOR UPDATE USING (auth.uid() = id);
 CREATE POLICY "Users can insert own profile"
-    ON user_profiles FOR INSERT
-    WITH CHECK (auth.uid() = id);
+    ON user_profiles FOR INSERT WITH CHECK (auth.uid() = id);
 
--- Transactions: Users see own only
+-- Transactions
 CREATE POLICY "Users can view own transactions"
-    ON transactions FOR SELECT
-    USING (auth.uid() = user_id);
+    ON transactions FOR SELECT USING (auth.uid() = user_id);
 
 -- Celebrities: Public read
 CREATE POLICY "Celebrities are public"
@@ -645,12 +565,11 @@ CREATE POLICY "Celebrities are public"
 CREATE POLICY "Markets are public"
     ON markets FOR SELECT USING (true);
 
--- Bets: Users see own
+-- Bets
 CREATE POLICY "Users can view own bets"
-    ON bets FOR SELECT
-    USING (auth.uid() = user_id);
+    ON bets FOR SELECT USING (auth.uid() = user_id);
 
--- Challenges: Users see own or public open ones
+-- Challenges
 CREATE POLICY "Users can view challenges"
     ON challenges FOR SELECT
     USING (auth.uid() = challenger_id OR auth.uid() = opponent_id OR status = 'OPEN');
@@ -659,7 +578,7 @@ CREATE POLICY "Users can view challenges"
 CREATE POLICY "AI insights are public"
     ON ai_insights FOR SELECT USING (true);
 
--- AI suggestions: Admin only (handled by service role)
+-- AI suggestions: Admin only
 CREATE POLICY "AI suggestions admin only"
     ON ai_market_suggestions FOR SELECT USING (false);
 
@@ -673,29 +592,3 @@ CREATE POLICY "News feed admin only"
 ALTER PUBLICATION supabase_realtime ADD TABLE markets;
 ALTER PUBLICATION supabase_realtime ADD TABLE bets;
 ALTER PUBLICATION supabase_realtime ADD TABLE ai_insights;
-
--- =====================================================
--- SAMPLE DATA
--- =====================================================
-
--- Celebrities
-INSERT INTO celebrities (name, slug, image_url, category, bio, metrics) VALUES
-    ('Taylor Swift', 'taylor-swift', 'https://placeholder.com/taylor.jpg', 'Music', 'Grammy-winning artist and global pop icon', '{"spotify_streams": 85000000000, "instagram_followers": 283000000, "twitter_followers": 95000000, "engagement_rate": 4.2, "trend_score": 92, "sentiment_score": 78}'),
-    ('Drake', 'drake', 'https://placeholder.com/drake.jpg', 'Music', 'Hip-hop artist and cultural trendsetter', '{"spotify_streams": 75000000000, "instagram_followers": 146000000, "twitter_followers": 39000000, "engagement_rate": 3.8, "trend_score": 85, "sentiment_score": 65}'),
-    ('MrBeast', 'mrbeast', 'https://placeholder.com/mrbeast.jpg', 'Social Media', 'YouTube phenomenon and philanthropist', '{"youtube_views": 45000000000, "youtube_subscribers": 340000000, "instagram_followers": 58000000, "twitter_followers": 31000000, "engagement_rate": 8.5, "trend_score": 94, "sentiment_score": 88}'),
-    ('Zendaya', 'zendaya', 'https://placeholder.com/zendaya.jpg', 'Film', 'Emmy-winning actress and fashion icon', '{"instagram_followers": 182000000, "twitter_followers": 21000000, "engagement_rate": 5.2, "trend_score": 82, "sentiment_score": 85}'),
-    ('LeBron James', 'lebron-james', 'https://placeholder.com/lebron.jpg', 'Sports', 'NBA legend and entrepreneur', '{"instagram_followers": 159000000, "twitter_followers": 53000000, "engagement_rate": 2.8, "trend_score": 78, "sentiment_score": 72}'),
-    ('Pokimane', 'pokimane', 'https://placeholder.com/pokimane.jpg', 'Gaming', 'Twitch streamer and content creator', '{"youtube_views": 1500000000, "instagram_followers": 9400000, "twitter_followers": 4200000, "twitch_followers": 9500000, "engagement_rate": 6.5, "trend_score": 75, "sentiment_score": 70}');
-
--- Sample Markets
-INSERT INTO markets (celebrity_id, title, description, category, status, yes_odds, no_odds, initial_yes_odds, initial_no_odds, closes_at, resolves_at, ai_generated, ai_confidence, ai_reasoning, min_pool_size) VALUES
-    ((SELECT id FROM celebrities WHERE slug = 'taylor-swift'), 'Will Taylor Swift''s next single hit 1B Spotify streams in first week?', 'Based on official Spotify streaming data for her upcoming release. Resolution will be based on Spotify''s official announcement.', 'STREAMING', 'ACTIVE', 7200, 2800, 7000, 3000, '2025-12-30 23:59:59+00', '2025-12-31 23:59:59+00', true, 85, 'Based on her last 5 single releases which averaged 800M first-week streams, with Eras Tour momentum, 1B is achievable.', 10000),
-    ((SELECT id FROM celebrities WHERE slug = 'mrbeast'), 'Will MrBeast reach 400M YouTube subscribers by July 2025?', 'Official YouTube subscriber count from socialblade.com or YouTube directly.', 'SOCIAL', 'ACTIVE', 6500, 3500, 6500, 3500, '2025-06-30 23:59:59+00', '2025-07-01 23:59:59+00', true, 78, 'Current growth rate of ~3M/month would put him at ~380M. Needs acceleration or viral moment.', 10000),
-    ((SELECT id FROM celebrities WHERE slug = 'drake'), 'Will Drake''s next album debut at #1 on Billboard 200?', 'Official Billboard Hot 200 chart position for first tracking week.', 'CHARTS', 'ACTIVE', 8500, 1500, 8500, 1500, '2025-03-31 23:59:59+00', '2025-04-07 23:59:59+00', true, 92, 'Drake has debuted at #1 with his last 7 albums. Strong pre-release buzz.', 10000),
-    ((SELECT id FROM celebrities WHERE slug = 'zendaya'), 'Will Zendaya win a Golden Globe in 2025?', 'Official Golden Globe Awards ceremony results.', 'AWARDS', 'ACTIVE', 4500, 5500, 4500, 5500, '2025-01-05 23:59:59+00', '2025-01-06 23:59:59+00', true, 65, 'Strong performance in Challengers, but competitive field.', 10000);
-
--- Sample AI Insights
-INSERT INTO ai_insights (market_id, celebrity_id, type, title, description, priority, emoji) VALUES
-    ((SELECT id FROM markets WHERE title LIKE '%Taylor Swift%'), (SELECT id FROM celebrities WHERE slug = 'taylor-swift'), 'TREND_ALERT', 'Taylor Swift Engagement Surge', 'Social media engagement up 15% this week following tour announcement. Historically correlates with streaming spikes.', 'HIGH', '📈'),
-    ((SELECT id FROM markets WHERE title LIKE '%MrBeast%'), (SELECT id FROM celebrities WHERE slug = 'mrbeast'), 'CONFIDENCE_UPDATE', 'MrBeast Growth Analysis', 'Subscriber growth accelerating - 4.2M gained in last 30 days vs 3.1M monthly average.', 'NORMAL', '🚀'),
-    (NULL, NULL, 'MARKET_ANALYSIS', 'Awards Season Volatility', 'Golden Globe nominations announced - expect odds movements on award markets.', 'HIGH', '🏆');

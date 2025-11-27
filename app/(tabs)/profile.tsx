@@ -1,23 +1,26 @@
-// StarTrade - Fan Profile Screen  
-// FOR ENTERTAINMENT PURPOSES ONLY
-import { View, Text, ScrollView, Pressable, ActivityIndicator } from 'react-native';
+// StarTrade - Profile Screen  
+// Real USDC Betting on Base (Coinbase L2)
+import { View, Text, ScrollView, Pressable, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/stores/authStore';
-import { usePortfolioStats } from '@/hooks/useBets';
+import { usePortfolioStats, useUserStats } from '@/hooks/useBets';
+import { useWallet } from '@/hooks/useWallet';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const signOut = useAuthStore((state) => state.signOut);
   const { stats, loading } = usePortfolioStats(user?.id || '');
+  const { profile } = useUserStats();
+  const { address: walletAddress } = useWallet();
 
   if (!user) {
     return (
       <View className="flex-1 bg-dark-950 items-center justify-center px-6">
-        <Text className="text-4xl mb-4">🎮</Text>
-        <Text className="text-white text-2xl font-bold mb-2">Join the Fun!</Text>
+        <Text className="text-4xl mb-4">👤</Text>
+        <Text className="text-white text-2xl font-bold mb-2">My Account</Text>
         <Text className="text-gray-400 text-center mb-6">
-          Sign in to track your predictions and compete on the leaderboard
+          Sign in to access your wallet and betting profile
         </Text>
         <Pressable
           onPress={() => router.push('/auth')}
@@ -37,12 +40,24 @@ export default function ProfileScreen() {
     );
   }
 
-  // Determine badges
+  // Determine badges based on real betting performance
   const badges = [];
-  if (stats.activePredictions >= 5) badges.push('🎯 Active Predictor');
-  if (stats.predictionAccuracy >= 70) badges.push('🎖️ High Accuracy');
-  if (stats.winRate >= 60) badges.push('🏆 Winning Streak');
-  if (stats.fanTokens >= 2000) badges.push('💰 Token Master');
+  if (stats.activeBets >= 3) badges.push('🎯 Active Bettor');
+  if (stats.winRate >= 60) badges.push('�� Winning Streak');
+  if (stats.totalBets >= 10) badges.push('📈 Experienced');
+  if (stats.totalBets >= 50) badges.push('💎 Veteran');
+  if (stats.netProfit > 0) badges.push('💰 Profitable');
+
+  const handleSignOut = () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign Out', style: 'destructive', onPress: signOut },
+      ]
+    );
+  };
 
   return (
     <View className="flex-1 bg-dark-950 pt-14">
@@ -52,62 +67,72 @@ export default function ProfileScreen() {
           <View className="w-24 h-24 bg-primary-500/20 rounded-full items-center justify-center mb-4">
             <Text className="text-4xl">
               {stats.rankTitle === 'Legend' ? '👑' :
-               stats.rankTitle === 'Celebrity Expert' ? '⭐' :
-               stats.rankTitle === 'Super Fan' ? '🌟' :
-               stats.rankTitle === 'Rising Star' ? '✨' : '🎮'}
+               stats.rankTitle === 'High Roller' ? '💎' :
+               stats.rankTitle === 'Pro Bettor' ? '🎯' :
+               stats.rankTitle === 'Rising Star' ? '⭐' : '🎮'}
             </Text>
           </View>
           <Text className="text-white text-2xl font-bold mb-1">
-            {user.email?.split('@')[0] || 'Fan'}
+            {user.email?.split('@')[0] || 'Bettor'}
           </Text>
           <View className="bg-primary-500/20 px-3 py-1 rounded-full">
             <Text className="text-primary-400 font-medium">{stats.rankTitle}</Text>
           </View>
         </View>
 
-        {/* Entertainment Disclaimer */}
-        <View className="bg-yellow-500/10 rounded-lg px-3 py-2 mb-6">
-          <Text className="text-yellow-400 text-xs text-center">
-            This app is for entertainment purposes only. All values are fictional.
-          </Text>
-        </View>
+        {/* Wallet Address */}
+        {walletAddress && (
+          <View className="bg-dark-900 rounded-xl p-4 mb-4">
+            <Text className="text-gray-400 text-sm mb-2">Wallet Address</Text>
+            <Text className="text-white font-mono text-sm" numberOfLines={1}>
+              {walletAddress.slice(0, 10)}...{walletAddress.slice(-8)}
+            </Text>
+            <Text className="text-gray-600 text-xs mt-1">Base Network (Coinbase L2)</Text>
+          </View>
+        )}
 
-        {/* Fan Tokens */}
-        <View className="bg-dark-900 rounded-xl p-6 mb-4 items-center">
-          <Text className="text-gray-400 text-sm mb-2">Your Fan Tokens</Text>
-          <Text className="text-primary-400 text-4xl font-bold">
-            🎫 {stats.fanTokens.toLocaleString()}
+        {/* Balance Overview */}
+        <View className="bg-gradient-to-br from-primary-600/20 to-primary-800/20 rounded-xl p-6 mb-4 border border-primary-500/20">
+          <Text className="text-gray-400 text-sm mb-2">Total Balance</Text>
+          <Text className="text-white text-4xl font-bold">
+            ${(stats.usdcBalance + stats.escrowedBalance).toFixed(2)}
           </Text>
-          <Text className="text-gray-600 text-xs mt-2">
-            Virtual tokens for entertainment only
-          </Text>
+          <View className="flex-row mt-3 gap-4">
+            <View>
+              <Text className="text-gray-500 text-xs">Available</Text>
+              <Text className="text-green-400 font-medium">${stats.usdcBalance.toFixed(2)}</Text>
+            </View>
+            <View>
+              <Text className="text-gray-500 text-xs">In Bets</Text>
+              <Text className="text-yellow-400 font-medium">${stats.escrowedBalance.toFixed(2)}</Text>
+            </View>
+          </View>
         </View>
 
         {/* Stats Grid */}
         <View className="flex-row flex-wrap gap-3 mb-6">
           <View className="bg-dark-900 rounded-xl p-4 flex-1 min-w-[45%]">
-            <Text className="text-gray-400 text-sm">Prediction Accuracy</Text>
+            <Text className="text-gray-400 text-sm">Win Rate</Text>
             <Text className="text-green-400 text-2xl font-bold">
-              {stats.predictionAccuracy.toFixed(0)}%
+              {stats.winRate.toFixed(0)}%
             </Text>
           </View>
           <View className="bg-dark-900 rounded-xl p-4 flex-1 min-w-[45%]">
-            <Text className="text-gray-400 text-sm">Active Predictions</Text>
+            <Text className="text-gray-400 text-sm">Total Bets</Text>
             <Text className="text-white text-2xl font-bold">
-              {stats.activePredictions}
+              {stats.totalBets}
             </Text>
           </View>
           <View className="bg-dark-900 rounded-xl p-4 flex-1 min-w-[45%]">
-            <Text className="text-gray-400 text-sm">Collection Value</Text>
-            <Text className="text-white text-2xl font-bold">
-              {stats.totalValue.toFixed(0)}
+            <Text className="text-gray-400 text-sm">Net Profit</Text>
+            <Text className={`text-2xl font-bold ${stats.netProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {stats.netProfit >= 0 ? '+' : ''}${stats.netProfit.toFixed(2)}
             </Text>
-            <Text className="text-gray-600 text-xs">fictional tokens</Text>
           </View>
           <View className="bg-dark-900 rounded-xl p-4 flex-1 min-w-[45%]">
-            <Text className="text-gray-400 text-sm">Lifetime Earned</Text>
-            <Text className="text-primary-400 text-2xl font-bold">
-              {stats.totalWinnings > 0 ? `+${stats.totalWinnings}` : '0'}
+            <Text className="text-gray-400 text-sm">Active Bets</Text>
+            <Text className="text-yellow-400 text-2xl font-bold">
+              {stats.activeBets}
             </Text>
           </View>
         </View>
@@ -130,13 +155,11 @@ export default function ProfileScreen() {
         <View className="bg-dark-900 rounded-xl p-4 mb-6">
           <Text className="text-gray-400 text-sm mb-3">Rank Progress</Text>
           <View className="gap-2">
-            {['Rookie Fan', 'Rising Star', 'Super Fan', 'Celebrity Expert', 'Legend'].map((rank, index) => {
-              const isCurrentOrPast = 
-                rank === stats.rankTitle || 
-                ['Rookie Fan', 'Rising Star', 'Super Fan', 'Celebrity Expert', 'Legend']
-                  .indexOf(rank) < 
-                ['Rookie Fan', 'Rising Star', 'Super Fan', 'Celebrity Expert', 'Legend']
-                  .indexOf(stats.rankTitle);
+            {['Rookie', 'Rising Star', 'Pro Bettor', 'High Roller', 'Legend'].map((rank) => {
+              const ranks = ['Rookie', 'Rising Star', 'Pro Bettor', 'High Roller', 'Legend'];
+              const currentIndex = ranks.indexOf(stats.rankTitle);
+              const rankIndex = ranks.indexOf(rank);
+              const isCurrentOrPast = rankIndex <= currentIndex;
               
               return (
                 <View key={rank} className="flex-row items-center">
@@ -157,9 +180,25 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        {/* Deposit / Withdraw Buttons */}
+        <View className="flex-row gap-3 mb-6">
+          <Pressable
+            onPress={() => Alert.alert('Deposit', 'Deposit functionality coming soon!')}
+            className="flex-1 bg-green-500/20 border border-green-500/30 rounded-xl py-4"
+          >
+            <Text className="text-green-400 text-center font-medium">Deposit USDC</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => Alert.alert('Withdraw', 'Withdraw functionality coming soon!')}
+            className="flex-1 bg-blue-500/20 border border-blue-500/30 rounded-xl py-4"
+          >
+            <Text className="text-blue-400 text-center font-medium">Withdraw</Text>
+          </Pressable>
+        </View>
+
         {/* Sign Out */}
         <Pressable
-          onPress={signOut}
+          onPress={handleSignOut}
           className="bg-dark-800 rounded-xl py-4 mb-8"
         >
           <Text className="text-red-400 text-center font-medium">Sign Out</Text>
@@ -168,11 +207,10 @@ export default function ProfileScreen() {
         {/* Legal Disclaimer */}
         <View className="bg-dark-900 rounded-xl p-4 mb-8">
           <Text className="text-gray-500 text-xs text-center leading-5">
-            This app is for entertainment purposes only. All "shares," "tokens," 
-            and "values" are fictional and have no real monetary value. This is 
-            not a gambling app, financial platform, or investment tool. All 
-            celebrity performance data is based on publicly available 
-            entertainment metrics.
+            StarTrade is a prediction market platform using real USDC on Base 
+            (Coinbase L2). All bets involve real cryptocurrency. Please bet 
+            responsibly and only with funds you can afford to lose. Must be 
+            18+ to participate.
           </Text>
         </View>
 
