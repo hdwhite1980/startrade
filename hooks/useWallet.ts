@@ -1,19 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  getOrCreateWallet,
-  getConnectedWallet,
-  getWalletAddress,
-  getBalance,
-  clearWallet,
-  signMessage,
-  exportPrivateKey,
-  importWallet,
+  getOrCreateEmbeddedWallet,
+  getEmbeddedWallet,
+  getStoredWalletState,
+  getETHBalance,
+  clearWalletConnection,
+  signMessageWithEmbedded,
+  exportEmbeddedPrivateKey,
+  importWalletFromPrivateKey,
+  getWalletBalances,
 } from '@/lib/wallet';
 import {
-  getAvailableBalance,
-  getEscrowedBalance,
-  depositToEscrow,
-  withdrawFromEscrow,
+  getUSDCBalance,
+  getEscrowBalance,
 } from '@/lib/contracts';
 import { ethers } from 'ethers';
 
@@ -26,8 +25,6 @@ interface UseWalletReturn {
   error: Error | null;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
-  deposit: (amount: string) => Promise<{ error: Error | null; txHash?: string }>;
-  withdraw: (amount: string) => Promise<{ error: Error | null; txHash?: string }>;
   sign: (message: string) => Promise<string | null>;
   exportKey: () => Promise<string | null>;
   importKey: (privateKey: string) => Promise<{ error: Error | null }>;
@@ -47,21 +44,15 @@ export function useWallet(): UseWalletReturn {
     setError(null);
 
     try {
-      const addr = await getWalletAddress();
-      setAddress(addr);
+      const state = await getStoredWalletState();
+      setAddress(state.address);
 
-      if (addr) {
-        // Fetch ETH balance
-        const bal = await getBalance();
-        setBalance(bal);
-
-        // Fetch escrow balances
-        const provider = new ethers.JsonRpcProvider('https://mainnet.base.org');
-        const escrow = await getEscrowedBalance(provider, addr);
-        const available = await getAvailableBalance(provider, addr);
-        
-        setEscrowBalance(escrow);
-        setAvailableBalance(available);
+      if (state.address) {
+        // Fetch balances
+        const balances = await getWalletBalances(state.address);
+        setBalance(balances.eth);
+        setEscrowBalance(balances.escrowTotal);
+        setAvailableBalance(balances.escrowAvailable);
       }
     } catch (e) {
       setError(e as Error);
@@ -77,7 +68,7 @@ export function useWallet(): UseWalletReturn {
   const connect = async () => {
     setLoading(true);
     try {
-      const wallet = await getOrCreateWallet();
+      const wallet = await getOrCreateEmbeddedWallet();
       setAddress(wallet.address);
       await fetchWalletData();
     } catch (e) {
@@ -88,54 +79,24 @@ export function useWallet(): UseWalletReturn {
   };
 
   const disconnect = async () => {
-    await clearWallet();
+    await clearWalletConnection();
     setAddress(null);
     setBalance('0');
     setEscrowBalance('0');
     setAvailableBalance('0');
   };
 
-  const deposit = async (amount: string) => {
-    try {
-      const wallet = await getConnectedWallet();
-      if (!wallet) throw new Error('Wallet not connected');
-
-      const tx = await depositToEscrow(wallet, amount);
-      await tx.wait();
-      
-      await fetchWalletData();
-      return { error: null, txHash: tx.hash };
-    } catch (e) {
-      return { error: e as Error };
-    }
-  };
-
-  const withdraw = async (amount: string) => {
-    try {
-      const wallet = await getConnectedWallet();
-      if (!wallet) throw new Error('Wallet not connected');
-
-      const tx = await withdrawFromEscrow(wallet, amount);
-      await tx.wait();
-      
-      await fetchWalletData();
-      return { error: null, txHash: tx.hash };
-    } catch (e) {
-      return { error: e as Error };
-    }
-  };
-
   const sign = async (message: string) => {
-    return signMessage(message);
+    return signMessageWithEmbedded(message);
   };
 
   const exportKey = async () => {
-    return exportPrivateKey();
+    return exportEmbeddedPrivateKey();
   };
 
   const importKey = async (privateKey: string) => {
     try {
-      await importWallet(privateKey);
+      await importWalletFromPrivateKey(privateKey);
       await fetchWalletData();
       return { error: null };
     } catch (e) {
@@ -152,8 +113,6 @@ export function useWallet(): UseWalletReturn {
     error,
     connect,
     disconnect,
-    deposit,
-    withdraw,
     sign,
     exportKey,
     importKey,

@@ -3,11 +3,12 @@ import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useBets } from '@/hooks/useBets';
-import { Market } from '@/hooks/useMarkets';
+import type { Market } from '@/types/database';
+import type { BetSide } from '@/hooks/useBets';
 
 interface BetSlipProps {
   market: Market;
-  position: 'YES' | 'NO';
+  position: BetSide;
   odds: number;
   onClose: () => void;
 }

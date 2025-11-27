@@ -1,24 +1,45 @@
+// StarTrade Markets Hook - USDC Betting
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
+import type { Market, MarketCategory, Celebrity, CelebrityCategory } from '@/types/database';
 
-export interface Market {
+// =====================================================
+// TYPES
+// =====================================================
+
+export type { Market, MarketCategory, Celebrity, CelebrityCategory };
+
+export interface PredictionChallenge {
   id: string;
+  celebrity_id: string;
   title: string;
   description: string;
-  category: string;
-  status: 'DRAFT' | 'OPEN' | 'CLOSED' | 'RESOLVED';
-  current_odds: { yes: number; no: number };
-  total_volume: number;
-  betting_closes_at: string;
+  category: MarketCategory;
+  status: 'ACTIVE' | 'UPCOMING' | 'CLOSED' | 'RESOLVED';
+  fan_sentiment: { yes: number; no: number };
+  total_predictions: number;
+  challenge_ends_at: string;
   resolves_at: string;
+  resolved_outcome: boolean | null;
   created_at: string;
-  resolved_value?: boolean;
 }
 
 interface UseMarketsOptions {
-  status?: string;
+  category?: MarketCategory;
+  status?: 'ACTIVE' | 'UPCOMING' | 'CLOSED' | 'RESOLVED';
+  celebrityId?: string;
+  featured?: boolean;
+  limit?: number;
+}
+
+interface UseCelebritiesOptions {
   category?: string;
+  limit?: number;
+}
+
+interface UseChallengesOptions {
+  celebrityId?: string;
+  status?: string;
   limit?: number;
 }
 
@@ -26,12 +47,46 @@ interface UseMarketsReturn {
   markets: Market[];
   loading: boolean;
   error: Error | null;
+  refresh: () => Promise<void>;
+}
+
+interface UseMarketReturn {
+  market: Market | null;
+  celebrity: Celebrity | null;
+  loading: boolean;
+  error: Error | null;
+  refresh: () => Promise<void>;
+}
+
+interface UseCelebritiesReturn {
+  celebrities: Celebrity[];
+  loading: boolean;
+  error: Error | null;
   refetch: () => Promise<void>;
 }
 
+interface UseCelebrityReturn {
+  celebrity: Celebrity | null;
+  loading: boolean;
+  error: Error | null;
+  refetch: () => Promise<void>;
+}
+
+interface UseChallengesReturn {
+  challenges: PredictionChallenge[];
+  loading: boolean;
+  error: Error | null;
+  refetch: () => Promise<void>;
+}
+
+// =====================================================
+// MARKET HOOKS
+// =====================================================
+
+/**
+ * Fetch markets with filters and real-time updates
+ */
 export function useMarkets(options: UseMarketsOptions = {}): UseMarketsReturn {
-  const { status = 'OPEN', category, limit = 20 } = options;
-  
   const [markets, setMarkets] = useState<Market[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -43,35 +98,50 @@ export function useMarkets(options: UseMarketsOptions = {}): UseMarketsReturn {
     try {
       let query = supabase
         .from('markets')
-        .select('*')
-        .order('betting_closes_at', { ascending: true })
-        .limit(limit);
+        .select(`
+          *,
+          celebrity:celebrities(id, name, slug, image_url, category)
+        `)
+        .order('created_at', { ascending: false });
 
-      if (status) {
-        query = query.eq('status', status);
+      if (options.category) {
+        query = query.eq('category', options.category);
       }
-
-      if (category) {
-        query = query.eq('category', category);
+      if (options.status) {
+        query = query.eq('status', options.status);
+      }
+      if (options.celebrityId) {
+        query = query.eq('celebrity_id', options.celebrityId);
+      }
+      if (options.featured) {
+        query = query.eq('featured', true);
+      }
+      if (options.limit) {
+        query = query.limit(options.limit);
       }
 
       const { data, error: fetchError } = await query;
 
-      if (fetchError) throw fetchError;
-      setMarkets((data as Market[]) || []);
-    } catch (e) {
-      setError(e as Error);
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      setMarkets(data as Market[]);
+    } catch (err) {
+      setError(err as Error);
     } finally {
       setLoading(false);
     }
-  }, [status, category, limit]);
+  }, [options.category, options.status, options.celebrityId, options.featured, options.limit]);
 
   useEffect(() => {
     fetchMarkets();
+  }, [fetchMarkets]);
 
-    // Set up realtime subscription
+  // Real-time subscription
+  useEffect(() => {
     const subscription = supabase
-      .channel('markets-changes')
+      .channel('markets_changes')
       .on(
         'postgres_changes',
         {
@@ -79,18 +149,8 @@ export function useMarkets(options: UseMarketsOptions = {}): UseMarketsReturn {
           schema: 'public',
           table: 'markets',
         },
-        (payload: RealtimePostgresChangesPayload<Market>) => {
-          if (payload.eventType === 'INSERT') {
-            setMarkets((prev) => [payload.new as Market, ...prev]);
-          } else if (payload.eventType === 'UPDATE') {
-            setMarkets((prev) =>
-              prev.map((m) => (m.id === (payload.new as Market).id ? (payload.new as Market) : m))
-            );
-          } else if (payload.eventType === 'DELETE') {
-            setMarkets((prev) =>
-              prev.filter((m) => m.id !== (payload.old as Market).id)
-            );
-          }
+        () => {
+          fetchMarkets();
         }
       )
       .subscribe();
@@ -104,54 +164,71 @@ export function useMarkets(options: UseMarketsOptions = {}): UseMarketsReturn {
     markets,
     loading,
     error,
-    refetch: fetchMarkets,
+    refresh: fetchMarkets,
   };
 }
 
 /**
- * Hook to fetch a single market by ID
+ * Fetch single market by ID
  */
-export function useMarket(id: string) {
+export function useMarket(marketId: string | null): UseMarketReturn {
   const [market, setMarket] = useState<Market | null>(null);
+  const [celebrity, setCelebrity] = useState<Celebrity | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  useEffect(() => {
-    if (!id) return;
+  const fetchMarket = useCallback(async () => {
+    if (!marketId) {
+      setLoading(false);
+      return;
+    }
 
-    const fetchMarket = async () => {
-      setLoading(true);
-      try {
-        const { data, error: fetchError } = await supabase
-          .from('markets')
-          .select('*')
-          .eq('id', id)
-          .single();
+    setLoading(true);
+    setError(null);
 
-        if (fetchError) throw fetchError;
-        setMarket(data as Market);
-      } catch (e) {
-        setError(e as Error);
-      } finally {
-        setLoading(false);
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('markets')
+        .select(`
+          *,
+          celebrity:celebrities(*)
+        `)
+        .eq('id', marketId)
+        .single();
+
+      if (fetchError) {
+        throw fetchError;
       }
-    };
 
+      setMarket(data as Market);
+      setCelebrity(data.celebrity as Celebrity);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setLoading(false);
+    }
+  }, [marketId]);
+
+  useEffect(() => {
     fetchMarket();
+  }, [fetchMarket]);
 
-    // Realtime updates for this specific market
+  // Real-time subscription for this market
+  useEffect(() => {
+    if (!marketId) return;
+
     const subscription = supabase
-      .channel(`market-${id}`)
+      .channel(`market_${marketId}`)
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*',
           schema: 'public',
           table: 'markets',
-          filter: `id=eq.${id}`,
+          filter: `id=eq.${marketId}`,
         },
-        (payload) => {
-          setMarket(payload.new as Market);
+        () => {
+          fetchMarket();
         }
       )
       .subscribe();
@@ -159,7 +236,304 @@ export function useMarket(id: string) {
     return () => {
       subscription.unsubscribe();
     };
-  }, [id]);
+  }, [marketId, fetchMarket]);
 
-  return { market, loading, error };
+  return {
+    market,
+    celebrity,
+    loading,
+    error,
+    refresh: fetchMarket,
+  };
+}
+
+/**
+ * Fetch active markets
+ */
+export function useActiveMarkets(limit: number = 10): UseMarketsReturn {
+  return useMarkets({ status: 'ACTIVE', limit });
+}
+
+/**
+ * Fetch featured markets
+ */
+export function useFeaturedMarkets(limit: number = 5): UseMarketsReturn {
+  return useMarkets({ status: 'ACTIVE', featured: true, limit });
+}
+
+/**
+ * Fetch markets by category
+ */
+export function useMarketsByCategory(
+  category: MarketCategory,
+  limit: number = 20
+): UseMarketsReturn {
+  return useMarkets({ category, status: 'ACTIVE', limit });
+}
+
+/**
+ * Fetch markets for a celebrity
+ */
+export function useCelebrityMarkets(
+  celebrityId: string,
+  limit: number = 10
+): UseMarketsReturn {
+  return useMarkets({ celebrityId, limit });
+}
+
+// =====================================================
+// CELEBRITY HOOKS
+// =====================================================
+
+/**
+ * Fetch celebrities with filters
+ */
+export function useCelebrities(options: UseCelebritiesOptions = {}): UseCelebritiesReturn {
+  const [celebrities, setCelebrities] = useState<Celebrity[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchCelebrities = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      let query = supabase
+        .from('celebrities')
+        .select('*')
+        .order('career_score', { ascending: false });
+
+      if (options.category) {
+        query = query.eq('category', options.category);
+      }
+      if (options.limit) {
+        query = query.limit(options.limit);
+      }
+
+      const { data, error: fetchError } = await query;
+
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      setCelebrities(data as Celebrity[]);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setLoading(false);
+    }
+  }, [options.category, options.limit]);
+
+  useEffect(() => {
+    fetchCelebrities();
+  }, [fetchCelebrities]);
+
+  return {
+    celebrities,
+    loading,
+    error,
+    refetch: fetchCelebrities,
+  };
+}
+
+/**
+ * Fetch single celebrity by ID
+ */
+export function useCelebrity(celebrityId: string | undefined): UseCelebrityReturn {
+  const [celebrity, setCelebrity] = useState<Celebrity | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchCelebrity = useCallback(async () => {
+    if (!celebrityId) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('celebrities')
+        .select('*')
+        .eq('id', celebrityId)
+        .single();
+
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      setCelebrity(data as Celebrity);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setLoading(false);
+    }
+  }, [celebrityId]);
+
+  useEffect(() => {
+    fetchCelebrity();
+  }, [fetchCelebrity]);
+
+  return {
+    celebrity,
+    loading,
+    error,
+    refetch: fetchCelebrity,
+  };
+}
+
+// =====================================================
+// CHALLENGE HOOKS (for entertainment/fan tokens)
+// =====================================================
+
+/**
+ * Fetch prediction challenges
+ */
+export function useChallenges(options: UseChallengesOptions = {}): UseChallengesReturn {
+  const [challenges, setChallenges] = useState<PredictionChallenge[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchChallenges = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      let query = supabase
+        .from('prediction_challenges')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (options.celebrityId) {
+        query = query.eq('celebrity_id', options.celebrityId);
+      }
+      if (options.status) {
+        query = query.eq('status', options.status);
+      }
+      if (options.limit) {
+        query = query.limit(options.limit);
+      }
+
+      const { data, error: fetchError } = await query;
+
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      setChallenges(data as PredictionChallenge[]);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setLoading(false);
+    }
+  }, [options.celebrityId, options.status, options.limit]);
+
+  useEffect(() => {
+    fetchChallenges();
+  }, [fetchChallenges]);
+
+  return {
+    challenges,
+    loading,
+    error,
+    refetch: fetchChallenges,
+  };
+}
+
+// =====================================================
+// SEARCH
+// =====================================================
+
+/**
+ * Search markets by title
+ */
+export function useMarketSearch(query: string) {
+  const [results, setResults] = useState<Market[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const search = useCallback(async () => {
+    if (!query || query.length < 2) {
+      setResults([]);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { data, error: searchError } = await supabase
+        .from('markets')
+        .select(`
+          *,
+          celebrity:celebrities(id, name, image_url)
+        `)
+        .ilike('title', `%${query}%`)
+        .eq('status', 'ACTIVE')
+        .limit(10);
+
+      if (searchError) {
+        throw searchError;
+      }
+
+      setResults(data as Market[]);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setLoading(false);
+    }
+  }, [query]);
+
+  useEffect(() => {
+    const debounce = setTimeout(search, 300);
+    return () => clearTimeout(debounce);
+  }, [search]);
+
+  return { results, loading, error };
+}
+
+/**
+ * Search celebrities by name
+ */
+export function useCelebritySearch(query: string) {
+  const [results, setResults] = useState<Celebrity[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const search = useCallback(async () => {
+    if (!query || query.length < 2) {
+      setResults([]);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { data, error: searchError } = await supabase
+        .from('celebrities')
+        .select('*')
+        .ilike('name', `%${query}%`)
+        .limit(10);
+
+      if (searchError) {
+        throw searchError;
+      }
+
+      setResults(data as Celebrity[]);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setLoading(false);
+    }
+  }, [query]);
+
+  useEffect(() => {
+    const debounce = setTimeout(search, 300);
+    return () => clearTimeout(debounce);
+  }, [search]);
+
+  return { results, loading, error };
 }

@@ -1,18 +1,30 @@
-import { View, Text, TextInput, Pressable, ActivityIndicator } from 'react-native';
+// USDC Deposit Component
+import { View, Text, TextInput, Pressable, ActivityIndicator, Linking } from 'react-native';
 import { useState } from 'react';
 import { useWalletStore } from '@/stores/walletStore';
+import { getTransactionUrl } from '@/lib/contracts';
 
 interface DepositProps {
   onClose: () => void;
 }
 
 export default function Deposit({ onClose }: DepositProps) {
-  const { deposit, balance, loading } = useWalletStore();
+  const { 
+    deposit, 
+    balances, 
+    depositLimits, 
+    depositing,
+    hasInfiniteApproval,
+    approveUSDC,
+    approving,
+  } = useWalletStore();
+  
   const [amount, setAmount] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [txHash, setTxHash] = useState<string | null>(null);
 
-  const quickAmounts = ['0.01', '0.05', '0.1', '0.25'];
+  const quickAmounts = ['5', '10', '25', '50'];
 
   const handleDeposit = async () => {
     const numAmount = parseFloat(amount);
@@ -22,65 +34,122 @@ export default function Deposit({ onClose }: DepositProps) {
       return;
     }
 
-    if (numAmount > parseFloat(balance)) {
-      setError('Insufficient ETH balance');
+    if (numAmount > parseFloat(balances.usdc)) {
+      setError('Insufficient USDC balance in wallet');
+      return;
+    }
+
+    if (depositLimits && numAmount > parseFloat(depositLimits.remainingToday)) {
+      setError(`Daily limit: $${depositLimits.remainingToday} remaining`);
       return;
     }
 
     setError(null);
     const result = await deposit(amount);
 
-    if (result.error) {
-      setError(result.error.message);
-    } else {
+    if (result.success) {
       setSuccess(true);
+      setTxHash(result.txHash || null);
       setTimeout(() => {
         onClose();
-      }, 2000);
+      }, 3000);
+    } else {
+      setError(result.error || 'Deposit failed');
+    }
+  };
+
+  const handleApprove = async () => {
+    setError(null);
+    const result = await approveUSDC();
+    if (!result.success) {
+      setError(result.error || 'Approval failed');
+    }
+  };
+
+  const openTransaction = () => {
+    if (txHash) {
+      Linking.openURL(getTransactionUrl(txHash));
     }
   };
 
   if (success) {
     return (
-      <View className="bg-dark-900 rounded-2xl p-6 items-center">
-        <Text className="text-4xl mb-4">✓</Text>
+      <View className="bg-gray-900 rounded-2xl p-6 items-center">
+        <Text className="text-4xl mb-4">✅</Text>
         <Text className="text-white text-xl font-bold mb-2">Deposit Successful!</Text>
-        <Text className="text-gray-400">Your funds are now available</Text>
+        <Text className="text-gray-400 mb-4">
+          ${amount} USDC added to your balance
+        </Text>
+        {txHash && (
+          <Pressable onPress={openTransaction}>
+            <Text className="text-purple-400 underline">View Transaction</Text>
+          </Pressable>
+        )}
       </View>
     );
   }
 
   return (
-    <View className="bg-dark-900 rounded-2xl p-4">
+    <View className="bg-gray-900 rounded-2xl p-4">
       {/* Header */}
       <View className="flex-row justify-between items-center mb-4">
-        <Text className="text-white text-xl font-bold">Deposit ETH</Text>
-        <Pressable onPress={onClose}>
+        <View>
+          <Text className="text-white text-xl font-bold">Deposit USDC</Text>
+          <Text className="text-gray-500 text-sm">Base Network</Text>
+        </View>
+        <Pressable onPress={onClose} className="p-2">
           <Text className="text-gray-400 text-xl">✕</Text>
         </Pressable>
       </View>
 
-      {/* Balance */}
-      <View className="bg-dark-800 rounded-xl p-4 mb-4">
-        <Text className="text-gray-400 text-sm">Available ETH</Text>
-        <Text className="text-white text-2xl font-bold">
-          {parseFloat(balance).toFixed(4)} ETH
-        </Text>
+      {/* Wallet Balance */}
+      <View className="bg-gray-800 rounded-xl p-4 mb-4">
+        <Text className="text-gray-400 text-sm mb-1">Wallet Balance</Text>
+        <View className="flex-row items-baseline">
+          <Text className="text-white text-2xl font-bold">
+            ${parseFloat(balances.usdc).toFixed(2)}
+          </Text>
+          <Text className="text-gray-500 ml-2">USDC</Text>
+        </View>
       </View>
+
+      {/* Daily Limits */}
+      {depositLimits && (
+        <View className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-3 mb-4">
+          <View className="flex-row justify-between">
+            <Text className="text-blue-400 text-sm">Daily Limit</Text>
+            <Text className="text-blue-400 text-sm">
+              ${parseFloat(depositLimits.dailyUsed).toFixed(2)} / ${parseFloat(depositLimits.dailyLimit).toFixed(2)}
+            </Text>
+          </View>
+          <View className="bg-blue-500/20 h-2 rounded-full mt-2 overflow-hidden">
+            <View 
+              className="bg-blue-500 h-full rounded-full"
+              style={{ 
+                width: `${(parseFloat(depositLimits.dailyUsed) / parseFloat(depositLimits.dailyLimit)) * 100}%` 
+              }}
+            />
+          </View>
+          <Text className="text-blue-300 text-xs mt-1">
+            ${parseFloat(depositLimits.remainingToday).toFixed(2)} remaining today
+          </Text>
+        </View>
+      )}
 
       {/* Amount Input */}
       <View className="mb-4">
-        <Text className="text-gray-400 mb-2">Amount to Deposit</Text>
-        <View className="flex-row items-center bg-dark-800 rounded-xl px-4">
+        <Text className="text-gray-400 mb-2">Amount</Text>
+        <View className="flex-row items-center bg-gray-800 rounded-xl px-4">
+          <Text className="text-gray-500 text-xl mr-2">$</Text>
           <TextInput
             value={amount}
             onChangeText={setAmount}
             placeholder="0.00"
             placeholderTextColor="#6b7280"
             keyboardType="decimal-pad"
-            className="flex-1 text-white text-xl py-4"
+            className="flex-1 text-white text-2xl py-4"
           />
-          <Text className="text-gray-400">ETH</Text>
+          <Text className="text-gray-400 font-medium">USDC</Text>
         </View>
       </View>
 
@@ -90,14 +159,16 @@ export default function Deposit({ onClose }: DepositProps) {
           <Pressable
             key={qa}
             onPress={() => setAmount(qa)}
-            className={`flex-1 py-2 rounded-lg ${
-              amount === qa ? 'bg-primary-500' : 'bg-dark-800'
+            className={`flex-1 py-3 rounded-lg border ${
+              amount === qa 
+                ? 'bg-purple-500/20 border-purple-500' 
+                : 'bg-gray-800 border-gray-700'
             }`}
           >
-            <Text className={`text-center font-medium ${
-              amount === qa ? 'text-white' : 'text-gray-400'
+            <Text className={`text-center font-semibold ${
+              amount === qa ? 'text-purple-400' : 'text-gray-400'
             }`}>
-              {qa}
+              ${qa}
             </Text>
           </Pressable>
         ))}
@@ -105,32 +176,84 @@ export default function Deposit({ onClose }: DepositProps) {
 
       {/* Error */}
       {error && (
-        <View className="bg-red-500/20 rounded-lg p-3 mb-4">
+        <View className="bg-red-500/20 border border-red-500/30 rounded-lg p-3 mb-4">
           <Text className="text-red-400 text-center">{error}</Text>
         </View>
+      )}
+
+      {/* Approval needed? */}
+      {!hasInfiniteApproval && parseFloat(amount) > 0 && (
+        <Pressable
+          onPress={handleApprove}
+          disabled={approving}
+          className={`rounded-xl py-4 mb-3 border ${
+            approving 
+              ? 'bg-gray-800 border-gray-700' 
+              : 'bg-purple-500/20 border-purple-500'
+          }`}
+        >
+          {approving ? (
+            <ActivityIndicator color="#a855f7" />
+          ) : (
+            <Text className="text-purple-400 text-center font-bold">
+              ① Approve USDC (One-time)
+            </Text>
+          )}
+        </Pressable>
       )}
 
       {/* Deposit Button */}
       <Pressable
         onPress={handleDeposit}
-        disabled={loading || !amount}
-        className={`rounded-xl py-4 flex-row items-center justify-center ${
-          loading || !amount ? 'bg-primary-500/50' : 'bg-primary-500'
+        disabled={depositing || !amount || parseFloat(amount) <= 0}
+        className={`rounded-xl py-4 ${
+          depositing || !amount || parseFloat(amount) <= 0
+            ? 'bg-purple-500/30' 
+            : 'bg-purple-500'
         }`}
       >
-        {loading ? (
-          <ActivityIndicator color="white" />
+        {depositing ? (
+          <View className="flex-row items-center justify-center">
+            <ActivityIndicator color="white" />
+            <Text className="text-white ml-2">Processing...</Text>
+          </View>
         ) : (
           <Text className="text-white text-center font-bold text-lg">
-            Deposit {amount || '0'} ETH
+            {hasInfiniteApproval ? '' : '② '}Deposit ${amount || '0'} USDC
           </Text>
         )}
       </Pressable>
 
       {/* Info */}
-      <Text className="text-gray-500 text-center text-sm mt-4">
-        Deposits are converted to betting credits at current ETH/USD rate
-      </Text>
+      <View className="mt-4 space-y-2">
+        <View className="flex-row items-center">
+          <Text className="text-gray-500 text-xs">⚡</Text>
+          <Text className="text-gray-500 text-xs ml-2">
+            Deposits are instant on Base (~2 seconds)
+          </Text>
+        </View>
+        <View className="flex-row items-center">
+          <Text className="text-gray-500 text-xs">💰</Text>
+          <Text className="text-gray-500 text-xs ml-2">
+            Gas fees: ~$0.01-0.05
+          </Text>
+        </View>
+        <View className="flex-row items-center">
+          <Text className="text-gray-500 text-xs">🔒</Text>
+          <Text className="text-gray-500 text-xs ml-2">
+            Min: $1 • Max: ${depositLimits?.max || '100'} daily
+          </Text>
+        </View>
+      </View>
+
+      {/* KYC Upgrade */}
+      {depositLimits && parseFloat(depositLimits.dailyLimit) < 10000 && (
+        <View className="mt-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+          <Text className="text-yellow-400 text-sm font-medium">
+            ⬆️ Verify identity to increase limit to $10,000
+          </Text>
+        </View>
+      )}
     </View>
   );
 }

@@ -25,27 +25,27 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Markets',
+          title: 'Fan Market',
           tabBarIcon: ({ focused }) => (
-            <Text style={{ fontSize: 20 }}>{focused ? '📊' : '📊'}</Text>
+            <Text style={{ fontSize: 20 }}>⭐</Text>
           ),
         }}
       />
       <Tabs.Screen
         name="portfolio"
         options={{
-          title: 'Portfolio',
+          title: 'Collection',
           tabBarIcon: ({ focused }) => (
-            <Text style={{ fontSize: 20 }}>{focused ? '💼' : '💼'}</Text>
+            <Text style={{ fontSize: 20 }}>🎬</Text>
           ),
         }}
       />
       <Tabs.Screen
         name="leaderboard"
         options={{
-          title: 'Rankings',
+          title: 'Fans',
           tabBarIcon: ({ focused }) => (
-            <Text style={{ fontSize: 20 }}>{focused ? '🏆' : '🏆'}</Text>
+            <Text style={{ fontSize: 20 }}>🏆</Text>
           ),
         }}
       />
@@ -54,7 +54,7 @@ export default function TabLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ focused }) => (
-            <Text style={{ fontSize: 20 }}>{focused ? '👤' : '👤'}</Text>
+            <Text style={{ fontSize: 20 }}>👤</Text>
           ),
         }}
       />
