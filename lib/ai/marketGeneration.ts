@@ -163,7 +163,7 @@ RESPOND IN THIS EXACT JSON FORMAT:
   "is_bettable": true/false,
   "suggested_title": "Will [X] achieve [Y] by [date]?",
   "suggested_description": "Detailed description of the market...",
-  "suggested_category": "MUSIC|FILM|SPORTS|SOCIAL|AWARDS|CHARTS|STREAMING|OTHER",
+  "suggested_category": "MUSIC|FILM|SOCIAL|AWARDS|CHARTS|STREAMING|OTHER",
   "celebrity_name": "Name if mentioned, or null",
   "yes_odds": 50,
   "no_odds": 50,

@@ -1,127 +1,89 @@
-// StarTrade Betting Hooks - Real USDC System
+// StarTrade Bets Hook - USDC Betting Only
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { useAuthStore } from '@/stores/authStore';
-import type { Bet, BetSide, BetStatus, UserProfile, Challenge } from '@/types/database';
-import { formatUSDC, usdToCents, centsToUSD } from '@/types/database';
+import type { Bet, Challenge, Market } from '@/types/database';
 
 // =====================================================
 // TYPES
 // =====================================================
 
-export type { Bet, BetSide, BetStatus, UserProfile, Challenge };
+export type { Bet, Challenge };
 
-interface PlaceBetParams {
-  marketId: string;
-  side: BetSide;
-  amountUSD: number;
-}
+export type BetSide = 'YES' | 'NO';
+export type BetStatus = 'ACTIVE' | 'WON' | 'LOST' | 'CANCELLED' | 'REFUNDED';
 
-interface PlaceBetResult {
-  success: boolean;
-  betId?: string;
-  error?: string;
+interface UseBetsOptions {
+  status?: BetStatus;
+  marketId?: string;
+  limit?: number;
 }
 
 interface UseBetsReturn {
   bets: Bet[];
   loading: boolean;
   error: Error | null;
-  refresh: () => Promise<void>;
-  placeBet: (marketId: string, side: BetSide, amountUSD: number, odds: number) => Promise<{ error: Error | null; betId?: string }>;
+  refetch: () => Promise<void>;
+  placeBet: (marketId: string, side: BetSide, amount: number, isVirtual?: boolean) => Promise<string>;
 }
 
-interface UseUserStatsReturn {
-  profile: UserProfile | null;
+interface UseBetReturn {
+  bet: Bet | null;
+  market: Market | null;
   loading: boolean;
   error: Error | null;
-  refresh: () => Promise<void>;
 }
 
-interface PortfolioStats {
-  usdcBalance: number;
-  escrowedBalance: number;
-  totalWagered: number;
-  totalWinnings: number;
-  totalLosses: number;
-  netProfit: number;
-  winRate: number;
-  totalBets: number;
-  activeBets: number;
-  rankTitle: string;
+interface UseChallengesReturn {
+  challenges: Challenge[];
+  loading: boolean;
+  error: Error | null;
+  refetch: () => Promise<void>;
 }
 
 // =====================================================
-// BETTING FUNCTIONS
+// BETS HOOKS
 // =====================================================
 
-export async function placeBet(params: PlaceBetParams): Promise<PlaceBetResult> {
-  const { marketId, side, amountUSD } = params;
-  const amountCents = usdToCents(amountUSD);
-  
-  if (amountCents < 100) {
-    return { success: false, error: 'Minimum bet is $1.00' };
-  }
-  if (amountCents > 2500) {
-    return { success: false, error: 'Maximum bet is $25.00' };
-  }
-
-  try {
-    const { data, error } = await supabase.rpc('place_bet', {
-      user_id_param: (await supabase.auth.getUser()).data.user?.id,
-      market_id_param: marketId,
-      side_param: side,
-      amount_param: amountCents,
-    });
-
-    if (error) {
-      const message = error.message || 'Failed to place bet';
-      if (message.includes('Insufficient balance')) return { success: false, error: 'Insufficient USDC balance' };
-      if (message.includes('self-excluded')) return { success: false, error: 'Account is self-excluded from betting' };
-      if (message.includes('limit')) return { success: false, error: 'Bet exceeds your betting limit' };
-      if (message.includes('closed')) return { success: false, error: 'Market is closed for betting' };
-      return { success: false, error: message };
-    }
-    return { success: true, betId: data };
-  } catch (err: any) {
-    return { success: false, error: err.message || 'Failed to place bet' };
-  }
-}
-
-export async function cancelBet(betId: string): Promise<{ success: boolean; error?: string }> {
-  try {
-    const { error } = await supabase.from('bets').update({ status: 'CANCELLED' }).eq('id', betId).eq('status', 'ACTIVE');
-    if (error) return { success: false, error: error.message };
-    return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err.message };
-  }
-}
-
-// =====================================================
-// HOOKS
-// =====================================================
-
-export function useBets(status?: BetStatus): UseBetsReturn {
+/**
+ * Fetch user's bets with filters
+ */
+export function useBets(options: UseBetsOptions = {}): UseBetsReturn {
   const [bets, setBets] = useState<Bet[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const { user } = useAuthStore();
 
   const fetchBets = useCallback(async () => {
-    if (!user) { setBets([]); setLoading(false); return; }
     setLoading(true);
     setError(null);
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setBets([]);
+        return;
+      }
+
       let query = supabase
         .from('bets')
-        .select(`*, market:markets(id, title, status, yes_odds, no_odds, resolved_outcome, closes_at)`)
+        .select(`
+          *,
+          market:markets(id, title, status, yes_odds, no_odds, resolved_outcome, celebrity:celebrities(id, name, image_url))
+        `)
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
-      
-      if (status) query = query.eq('status', status);
+
+      if (options.status) {
+        query = query.eq('status', options.status);
+      }
+      if (options.marketId) {
+        query = query.eq('market_id', options.marketId);
+      }
+      if (options.limit) {
+        query = query.limit(options.limit);
+      }
+
       const { data, error: fetchError } = await query;
+
       if (fetchError) throw fetchError;
       setBets(data as Bet[]);
     } catch (err) {
@@ -129,312 +91,439 @@ export function useBets(status?: BetStatus): UseBetsReturn {
     } finally {
       setLoading(false);
     }
-  }, [user, status]);
-
-  useEffect(() => { fetchBets(); }, [fetchBets]);
+  }, [options.status, options.marketId, options.limit]);
 
   useEffect(() => {
-    if (!user) return;
-    const subscription = supabase
-      .channel('my_bets')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bets', filter: `user_id=eq.${user.id}` }, () => fetchBets())
-      .subscribe();
-    return () => { subscription.unsubscribe(); };
-  }, [user, fetchBets]);
+    fetchBets();
+  }, [fetchBets]);
 
-  const placeBetFn = async (marketId: string, side: BetSide, amountUSD: number, odds: number) => {
-    const result = await placeBet({ marketId, side, amountUSD });
-    if (result.success) { await fetchBets(); return { error: null, betId: result.betId }; }
-    return { error: new Error(result.error || 'Failed to place bet') };
+  /**
+   * Place a bet on a market
+   */
+  const placeBet = async (marketId: string, side: BetSide, amount: number, isVirtual: boolean = false): Promise<string> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Must be logged in to place bet');
+
+    if (isVirtual) {
+      // Place virtual bet - uses virtual_balance instead of USDC
+      const { data, error } = await supabase.rpc('place_virtual_bet', {
+        user_id_param: user.id,
+        market_id_param: marketId,
+        side_param: side,
+        amount_param: amount,
+      });
+
+      if (error) throw error;
+      
+      // Refresh bets after placing
+      await fetchBets();
+      
+      return data as string;
+    } else {
+      // Place real USDC bet
+      const { data, error } = await supabase.rpc('place_bet', {
+        user_id_param: user.id,
+        market_id_param: marketId,
+        side_param: side,
+        amount_param: amount,
+      });
+
+      if (error) throw error;
+      
+      // Refresh bets after placing
+      await fetchBets();
+      
+      return data as string;
+    }
   };
 
-  return { bets, loading, error, refresh: fetchBets, placeBet: placeBetFn };
+  return {
+    bets,
+    loading,
+    error,
+    refetch: fetchBets,
+    placeBet,
+  };
 }
 
-export function useMyBets(status?: BetStatus): Omit<UseBetsReturn, 'placeBet'> {
-  const result = useBets(status);
-  return { bets: result.bets, loading: result.loading, error: result.error, refresh: result.refresh };
+/**
+ * Fetch a single bet by ID
+ */
+export function useBet(betId: string | null): UseBetReturn {
+  const [bet, setBet] = useState<Bet | null>(null);
+  const [market, setMarket] = useState<Market | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    if (!betId) {
+      setLoading(false);
+      return;
+    }
+
+    const fetchBet = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('bets')
+          .select(`
+            *,
+            market:markets(*)
+          `)
+          .eq('id', betId)
+          .single();
+
+        if (fetchError) throw fetchError;
+        
+        setBet(data as Bet);
+        setMarket(data.market as Market);
+      } catch (err) {
+        setError(err as Error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchBet();
+  }, [betId]);
+
+  return { bet, market, loading, error };
 }
 
-export function useActiveBets(): Omit<UseBetsReturn, 'placeBet'> { 
-  return useMyBets('ACTIVE'); 
+/**
+ * Fetch user's active bets
+ */
+export function useActiveBets(limit: number = 10): UseBetsReturn {
+  return useBets({ status: 'ACTIVE', limit });
 }
 
-export function useBetHistory(): Omit<UseBetsReturn, 'placeBet'> {
+/**
+ * Fetch user's bet history (resolved bets)
+ */
+export function useBetHistory(limit: number = 50): UseBetsReturn {
   const [bets, setBets] = useState<Bet[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const { user } = useAuthStore();
 
   const fetchBets = useCallback(async () => {
-    if (!user) { setBets([]); setLoading(false); return; }
-    setLoading(true); setError(null);
+    setLoading(true);
+    setError(null);
+
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setBets([]);
+        return;
+      }
+
       const { data, error: fetchError } = await supabase
         .from('bets')
-        .select(`*, market:markets(id, title, resolved_outcome)`)
+        .select(`
+          *,
+          market:markets(id, title, status, resolved_outcome, celebrity:celebrities(id, name, image_url))
+        `)
         .eq('user_id', user.id)
-        .in('status', ['WON', 'LOST'])
-        .order('resolved_at', { ascending: false });
+        .in('status', ['WON', 'LOST', 'REFUNDED'])
+        .order('resolved_at', { ascending: false })
+        .limit(limit);
+
       if (fetchError) throw fetchError;
       setBets(data as Bet[]);
-    } catch (err) { setError(err as Error); }
-    finally { setLoading(false); }
-  }, [user]);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setLoading(false);
+    }
+  }, [limit]);
 
-  useEffect(() => { fetchBets(); }, [fetchBets]);
-  return { bets, loading, error, refresh: fetchBets };
+  useEffect(() => {
+    fetchBets();
+  }, [fetchBets]);
+
+  const placeBet = async () => {
+    throw new Error('Cannot place bet from history view');
+  };
+
+  return { bets, loading, error, refetch: fetchBets, placeBet };
 }
 
-export function useMarketBets(marketId: string): Omit<UseBetsReturn, 'placeBet'> {
-  const [bets, setBets] = useState<Bet[]>([]);
+// =====================================================
+// CHALLENGES HOOKS (H2H Beef Mode - Real USDC)
+// =====================================================
+
+/**
+ * Fetch user's challenges
+ */
+export function useChallenges(): UseChallengesReturn {
+  const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const { user } = useAuthStore();
 
-  const fetchBets = useCallback(async () => {
-    if (!user || !marketId) { setBets([]); setLoading(false); return; }
-    setLoading(true); setError(null);
+  const fetchChallenges = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setChallenges([]);
+        return;
+      }
+
       const { data, error: fetchError } = await supabase
-        .from('bets')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('market_id', marketId)
+        .from('challenges')
+        .select(`
+          *,
+          market:markets(id, title, status),
+          challenger:user_profiles!challenger_id(id, username, avatar_url),
+          opponent:user_profiles!opponent_id(id, username, avatar_url)
+        `)
+        .or(`challenger_id.eq.${user.id},opponent_id.eq.${user.id}`)
         .order('created_at', { ascending: false });
-      if (fetchError) throw fetchError;
-      setBets(data as Bet[]);
-    } catch (err) { setError(err as Error); }
-    finally { setLoading(false); }
-  }, [user, marketId]);
 
-  useEffect(() => { fetchBets(); }, [fetchBets]);
-  return { bets, loading, error, refresh: fetchBets };
+      if (fetchError) throw fetchError;
+      setChallenges(data as Challenge[]);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchChallenges();
+  }, [fetchChallenges]);
+
+  return { challenges, loading, error, refetch: fetchChallenges };
 }
 
-export function useUserStats(): UseUserStatsReturn {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+/**
+ * Fetch open challenges (available to accept)
+ */
+export function useOpenChallenges(marketId?: string): UseChallengesReturn {
+  const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const { user } = useAuthStore();
 
-  const fetchProfile = useCallback(async () => {
-    if (!user) { setProfile(null); setLoading(false); return; }
-    setLoading(true); setError(null);
+  const fetchChallenges = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
     try {
-      const { data, error: fetchError } = await supabase.from('user_profiles').select('*').eq('id', user.id).single();
-      if (fetchError) throw fetchError;
-      setProfile(data as UserProfile);
-    } catch (err) { setError(err as Error); }
-    finally { setLoading(false); }
-  }, [user]);
+      let query = supabase
+        .from('challenges')
+        .select(`
+          *,
+          market:markets(id, title, status),
+          challenger:user_profiles!challenger_id(id, username, avatar_url)
+        `)
+        .eq('status', 'OPEN')
+        .order('created_at', { ascending: false });
 
-  useEffect(() => { fetchProfile(); }, [fetchProfile]);
-  return { profile, loading, error, refresh: fetchProfile };
+      if (marketId) {
+        query = query.eq('market_id', marketId);
+      }
+
+      const { data, error: fetchError } = await query;
+
+      if (fetchError) throw fetchError;
+      setChallenges(data as Challenge[]);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setLoading(false);
+    }
+  }, [marketId]);
+
+  useEffect(() => {
+    fetchChallenges();
+  }, [fetchChallenges]);
+
+  return { challenges, loading, error, refetch: fetchChallenges };
 }
 
 // =====================================================
-// PORTFOLIO STATS (Real USDC)
+// BETTING STATS
 // =====================================================
+
+interface BettingStats {
+  totalBets: number;
+  winningBets: number;
+  losingBets: number;
+  winRate: number;
+  totalWagered: number;
+  totalWon: number;
+  totalLost: number;
+  netProfit: number;
+}
+
+export function useBettingStats() {
+  const [stats, setStats] = useState<BettingStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setStats(null);
+          return;
+        }
+
+        const { data: profile, error: profileError } = await supabase
+          .from('user_profiles')
+          .select('total_bets, winning_bets, lifetime_winnings, lifetime_losses')
+          .eq('id', user.id)
+          .single();
+
+        if (profileError) throw profileError;
+
+        const totalWagered = (profile.lifetime_winnings || 0) + (profile.lifetime_losses || 0);
+        
+        setStats({
+          totalBets: profile.total_bets || 0,
+          winningBets: profile.winning_bets || 0,
+          losingBets: (profile.total_bets || 0) - (profile.winning_bets || 0),
+          winRate: profile.total_bets > 0 
+            ? Math.round((profile.winning_bets / profile.total_bets) * 100) 
+            : 0,
+          totalWagered,
+          totalWon: profile.lifetime_winnings || 0,
+          totalLost: profile.lifetime_losses || 0,
+          netProfit: (profile.lifetime_winnings || 0) - (profile.lifetime_losses || 0),
+        });
+      } catch (err) {
+        setError(err as Error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStats();
+  }, []);
+
+  return { stats, loading, error };
+}
+
+// =====================================================
+// PORTFOLIO STATS (For Portfolio Screen)
+// =====================================================
+
+interface PortfolioStats {
+  usdcBalance: number;
+  escrowedBalance: number;
+  totalBets: number;
+  winRate: number;
+  totalWinnings: number;
+  totalLosses: number;
+  netProfit: number;
+  activeBets: number;
+  rankTitle: string;
+}
 
 export function usePortfolioStats(userId: string) {
   const [stats, setStats] = useState<PortfolioStats>({
     usdcBalance: 0,
     escrowedBalance: 0,
-    totalWagered: 0,
+    totalBets: 0,
+    winRate: 0,
     totalWinnings: 0,
     totalLosses: 0,
     netProfit: 0,
-    winRate: 0,
-    totalBets: 0,
     activeBets: 0,
     rankTitle: 'Rookie',
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
 
-  const fetchStats = useCallback(async () => {
-    if (!userId) { setLoading(false); return; }
+  const refresh = useCallback(async () => {
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
+    
     setLoading(true);
+    setError(null);
 
     try {
-      // Get user profile
-      const { data: profile } = await supabase
+      // Fetch user profile
+      const { data: profile, error: profileError } = await supabase
         .from('user_profiles')
-        .select('usdc_balance, escrowed_balance, lifetime_winnings, lifetime_losses, winning_bets, total_bets, rank_title')
+        .select('usdc_balance, escrowed_balance, total_bets, winning_bets, lifetime_winnings, lifetime_losses')
         .eq('id', userId)
         .single();
 
-      // Get active bets count
+      if (profileError) throw profileError;
+
+      // Count active bets
       const { count: activeBetsCount } = await supabase
         .from('bets')
         .select('id', { count: 'exact', head: true })
         .eq('user_id', userId)
         .eq('status', 'ACTIVE');
 
-      const winRate = (profile?.total_bets || 0) > 0 
-        ? ((profile?.winning_bets || 0) / (profile?.total_bets || 1)) * 100 
-        : 0;
+      const totalBets = profile?.total_bets || 0;
+      const winningBets = profile?.winning_bets || 0;
+      const totalWinnings = (profile?.lifetime_winnings || 0) / 100; // cents to dollars
+      const totalLosses = (profile?.lifetime_losses || 0) / 100;
+
+      // Calculate rank based on total bets
+      let rankTitle = 'Rookie';
+      if (totalBets >= 100) rankTitle = 'Legend';
+      else if (totalBets >= 50) rankTitle = 'Veteran';
+      else if (totalBets >= 20) rankTitle = 'Regular';
+      else if (totalBets >= 5) rankTitle = 'Newcomer';
 
       setStats({
-        usdcBalance: centsToUSD(profile?.usdc_balance || 0),
-        escrowedBalance: centsToUSD(profile?.escrowed_balance || 0),
-        totalWagered: centsToUSD((profile?.lifetime_winnings || 0) + (profile?.lifetime_losses || 0)),
-        totalWinnings: centsToUSD(profile?.lifetime_winnings || 0),
-        totalLosses: centsToUSD(profile?.lifetime_losses || 0),
-        netProfit: centsToUSD((profile?.lifetime_winnings || 0) - (profile?.lifetime_losses || 0)),
-        winRate,
-        totalBets: profile?.total_bets || 0,
+        usdcBalance: (profile?.usdc_balance || 0) / 100, // cents to dollars
+        escrowedBalance: (profile?.escrowed_balance || 0) / 100,
+        totalBets,
+        winRate: totalBets > 0 ? (winningBets / totalBets) * 100 : 0,
+        totalWinnings,
+        totalLosses,
+        netProfit: totalWinnings - totalLosses,
         activeBets: activeBetsCount || 0,
-        rankTitle: profile?.rank_title || 'Rookie',
+        rankTitle,
       });
-    } catch (err) { 
-      console.error('Failed to fetch portfolio stats:', err); 
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setLoading(false);
     }
-    finally { setLoading(false); }
   }, [userId]);
 
-  useEffect(() => { fetchStats(); }, [fetchStats]);
-  return { stats, loading, refresh: fetchStats };
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  return { stats, loading, error, refresh };
 }
 
-// =====================================================
-// BETTING STATS CALCULATOR
-// =====================================================
-
-export function calculateBettingStats(bets: Bet[]) {
-  const resolved = bets.filter(b => b.status === 'WON' || b.status === 'LOST');
-  const won = bets.filter(b => b.status === 'WON');
-  const lost = bets.filter(b => b.status === 'LOST');
-  const active = bets.filter(b => b.status === 'ACTIVE');
-
+/**
+ * Calculate betting stats from an array of bets
+ */
+export function calculateBettingStats(bets: Bet[]): BettingStats {
+  const wonBets = bets.filter(b => b.status === 'WON');
+  const lostBets = bets.filter(b => b.status === 'LOST');
+  
+  const totalWon = wonBets.reduce((sum, b) => sum + (b.actual_payout || 0), 0);
+  const totalLost = lostBets.reduce((sum, b) => sum + b.amount, 0);
   const totalWagered = bets.reduce((sum, b) => sum + b.amount, 0);
-  const totalWon = won.reduce((sum, b) => sum + (b.actual_payout || 0), 0);
-  const activeWagered = active.reduce((sum, b) => sum + b.amount, 0);
 
   return {
     totalBets: bets.length,
-    resolvedBets: resolved.length,
-    wonBets: won.length,
-    lostBets: lost.length,
-    activeBets: active.length,
-    winRate: resolved.length > 0 ? (won.length / resolved.length) * 100 : 0,
-    totalWagered: centsToUSD(totalWagered),
-    totalWon: centsToUSD(totalWon),
-    totalLost: centsToUSD(lost.reduce((sum, b) => sum + b.amount, 0)),
-    netProfit: centsToUSD(totalWon - totalWagered),
-    activeWagered: centsToUSD(activeWagered),
+    winningBets: wonBets.length,
+    losingBets: lostBets.length,
+    winRate: bets.length > 0 ? (wonBets.length / bets.length) * 100 : 0,
+    totalWagered,
+    totalWon,
+    totalLost,
+    netProfit: totalWon - totalLost,
   };
-}
-
-// =====================================================
-// CHALLENGES (BEEF MODE - H2H Real USDC)
-// =====================================================
-
-export async function createChallenge(
-  marketId: string, 
-  side: BetSide, 
-  amountUSD: number
-): Promise<{ success: boolean; challengeId?: string; error?: string }> {
-  const amountCents = usdToCents(amountUSD);
-  const user = (await supabase.auth.getUser()).data.user;
-  if (!user) return { success: false, error: 'Not authenticated' };
-  if (amountCents < 100) return { success: false, error: 'Minimum challenge is $1.00' };
-
-  const platformFee = Math.floor(amountCents * 0.04); // 4% rake
-  const totalPot = amountCents * 2;
-  const winnerPayout = totalPot - platformFee;
-  const expiresAt = new Date(); 
-  expiresAt.setHours(expiresAt.getHours() + 24);
-
-  try {
-    const { data, error } = await supabase
-      .from('challenges')
-      .insert({ 
-        market_id: marketId, 
-        challenger_id: user.id, 
-        challenger_side: side, 
-        challenger_amount: amountCents, 
-        total_pot: totalPot, 
-        platform_fee: platformFee, 
-        winner_payout: winnerPayout, 
-        expires_at: expiresAt.toISOString() 
-      })
-      .select('id')
-      .single();
-    if (error) return { success: false, error: error.message };
-    return { success: true, challengeId: data?.id };
-  } catch (err: any) { 
-    return { success: false, error: err.message }; 
-  }
-}
-
-export async function acceptChallenge(challengeId: string): Promise<{ success: boolean; error?: string }> {
-  const user = (await supabase.auth.getUser()).data.user;
-  if (!user) return { success: false, error: 'Not authenticated' };
-  try {
-    const { error } = await supabase
-      .from('challenges')
-      .update({ 
-        opponent_id: user.id, 
-        opponent_accepted_at: new Date().toISOString(), 
-        status: 'MATCHED' 
-      })
-      .eq('id', challengeId)
-      .eq('status', 'OPEN');
-    if (error) return { success: false, error: error.message };
-    return { success: true };
-  } catch (err: any) { 
-    return { success: false, error: err.message }; 
-  }
-}
-
-export function useOpenChallenges(marketId?: string) {
-  const [challenges, setChallenges] = useState<Challenge[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  const fetchChallenges = useCallback(async () => {
-    setLoading(true); setError(null);
-    try {
-      let query = supabase
-        .from('challenges')
-        .select(`*, market:markets(id, title), challenger:user_profiles!challenger_id(id, username, avatar_url)`)
-        .eq('status', 'OPEN')
-        .gt('expires_at', new Date().toISOString())
-        .order('created_at', { ascending: false });
-      if (marketId) query = query.eq('market_id', marketId);
-      const { data, error: fetchError } = await query;
-      if (fetchError) throw fetchError;
-      setChallenges(data as Challenge[]);
-    } catch (err) { setError(err as Error); }
-    finally { setLoading(false); }
-  }, [marketId]);
-
-  useEffect(() => { fetchChallenges(); }, [fetchChallenges]);
-  return { challenges, loading, error, refresh: fetchChallenges };
-}
-
-export function useMyChallenges() {
-  const [challenges, setChallenges] = useState<Challenge[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-  const { user } = useAuthStore();
-
-  const fetchChallenges = useCallback(async () => {
-    if (!user) { setChallenges([]); setLoading(false); return; }
-    setLoading(true); setError(null);
-    try {
-      const { data, error: fetchError } = await supabase
-        .from('challenges')
-        .select(`*, market:markets(id, title, resolved_outcome), opponent:user_profiles!opponent_id(id, username)`)
-        .or(`challenger_id.eq.${user.id},opponent_id.eq.${user.id}`)
-        .order('created_at', { ascending: false });
-      if (fetchError) throw fetchError;
-      setChallenges(data as Challenge[]);
-    } catch (err) { setError(err as Error); }
-    finally { setLoading(false); }
-  }, [user]);
-
-  useEffect(() => { fetchChallenges(); }, [fetchChallenges]);
-  return { challenges, loading, error, refresh: fetchChallenges };
 }

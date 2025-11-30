@@ -10,7 +10,7 @@ export default function PortfolioScreen() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const { stats, loading: statsLoading, refresh: refreshStats } = usePortfolioStats(user?.id || '');
-  const { bets, loading: betsLoading, refresh: refreshBets } = useBets();
+  const { bets, loading: betsLoading, refetch: refreshBets } = useBets();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
@@ -21,17 +21,17 @@ export default function PortfolioScreen() {
 
   if (!user) {
     return (
-      <View className="flex-1 bg-dark-950 items-center justify-center px-6">
-        <Text className="text-4xl mb-4">💰</Text>
-        <Text className="text-white text-2xl font-bold mb-2">My Portfolio</Text>
-        <Text className="text-gray-400 text-center mb-6">
+      <View style={{ flex: 1, backgroundColor: '#0a0a0f', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
+        <Text style={{ fontSize: 40, marginBottom: 16 }}>💰</Text>
+        <Text style={{ color: 'white', fontSize: 24, fontWeight: 'bold', marginBottom: 8 }}>My Portfolio</Text>
+        <Text style={{ color: '#9ca3af', textAlign: 'center', marginBottom: 24 }}>
           Sign in to view your betting history and stats
         </Text>
         <Pressable
           onPress={() => router.push('/auth')}
-          className="bg-primary-500 px-8 py-4 rounded-xl"
+          style={{ backgroundColor: '#8b5cf6', paddingHorizontal: 32, paddingVertical: 16, borderRadius: 12 }}
         >
-          <Text className="text-white font-semibold text-lg">Sign In</Text>
+          <Text style={{ color: 'white', fontWeight: '600', fontSize: 18 }}>Sign In</Text>
         </Pressable>
       </View>
     );
@@ -44,78 +44,78 @@ export default function PortfolioScreen() {
 
   if (loading && !refreshing) {
     return (
-      <View className="flex-1 bg-dark-950 items-center justify-center">
+      <View style={{ flex: 1, backgroundColor: '#0a0a0f', alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator size="large" color="#8b5cf6" />
       </View>
     );
   }
 
   return (
-    <View className="flex-1 bg-dark-950 pt-14">
-      <Text className="text-white text-3xl font-bold px-4 mb-2">Portfolio</Text>
-      <Text className="text-gray-500 text-sm px-4 mb-4">Real USDC on Base</Text>
+    <View style={{ flex: 1, backgroundColor: '#0a0a0f', paddingTop: 56 }}>
+      <Text style={{ color: 'white', fontSize: 28, fontWeight: 'bold', paddingHorizontal: 16, marginBottom: 8 }}>Portfolio</Text>
+      <Text style={{ color: '#6b7280', fontSize: 14, paddingHorizontal: 16, marginBottom: 16 }}>Real USDC on Base</Text>
 
       <ScrollView 
-        className="flex-1"
+        style={{ flex: 1 }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8b5cf6" />
         }
       >
         {/* Balance Cards */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="px-4 mb-6">
-          <View className="bg-gradient-to-br from-primary-600 to-primary-800 rounded-xl p-4 mr-3 min-w-[160px]">
-            <Text className="text-primary-200 text-sm">Available Balance</Text>
-            <Text className="text-white text-2xl font-bold">
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingHorizontal: 16, marginBottom: 24 }}>
+          <View style={{ backgroundColor: '#7c3aed', borderRadius: 12, padding: 16, marginRight: 12, minWidth: 160 }}>
+            <Text style={{ color: '#c4b5fd', fontSize: 14 }}>Available Balance</Text>
+            <Text style={{ color: 'white', fontSize: 24, fontWeight: 'bold' }}>
               ${stats.usdcBalance.toFixed(2)}
             </Text>
-            <Text className="text-primary-300 text-xs">USDC</Text>
+            <Text style={{ color: '#a78bfa', fontSize: 12 }}>USDC</Text>
           </View>
-          <View className="bg-dark-900 rounded-xl p-4 mr-3 min-w-[140px]">
-            <Text className="text-gray-400 text-sm">In Bets</Text>
-            <Text className="text-yellow-400 text-2xl font-bold">
+          <View style={{ backgroundColor: '#1a1a24', borderRadius: 12, padding: 16, marginRight: 12, minWidth: 140 }}>
+            <Text style={{ color: '#9ca3af', fontSize: 14 }}>In Bets</Text>
+            <Text style={{ color: '#facc15', fontSize: 24, fontWeight: 'bold' }}>
               ${stats.escrowedBalance.toFixed(2)}
             </Text>
-            <Text className="text-gray-500 text-xs">Escrowed</Text>
+            <Text style={{ color: '#6b7280', fontSize: 12 }}>Escrowed</Text>
           </View>
-          <View className="bg-dark-900 rounded-xl p-4 mr-3 min-w-[140px]">
-            <Text className="text-gray-400 text-sm">Net Profit</Text>
-            <Text className={`text-2xl font-bold ${stats.netProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+          <View style={{ backgroundColor: '#1a1a24', borderRadius: 12, padding: 16, marginRight: 12, minWidth: 140 }}>
+            <Text style={{ color: '#9ca3af', fontSize: 14 }}>Net Profit</Text>
+            <Text style={{ color: stats.netProfit >= 0 ? '#22c55e' : '#ef4444', fontSize: 24, fontWeight: 'bold' }}>
               {stats.netProfit >= 0 ? '+' : ''}${stats.netProfit.toFixed(2)}
             </Text>
           </View>
-          <View className="bg-dark-900 rounded-xl p-4 min-w-[140px]">
-            <Text className="text-gray-400 text-sm">Win Rate</Text>
-            <Text className="text-green-400 text-2xl font-bold">
+          <View style={{ backgroundColor: '#1a1a24', borderRadius: 12, padding: 16, minWidth: 140 }}>
+            <Text style={{ color: '#9ca3af', fontSize: 14 }}>Win Rate</Text>
+            <Text style={{ color: '#22c55e', fontSize: 24, fontWeight: 'bold' }}>
               {stats.winRate.toFixed(0)}%
             </Text>
-            <Text className="text-gray-500 text-xs">{stats.totalBets} bets</Text>
+            <Text style={{ color: '#6b7280', fontSize: 12 }}>{stats.totalBets} bets</Text>
           </View>
         </ScrollView>
 
         {/* Quick Stats */}
-        <View className="px-4 mb-6">
-          <View className="bg-dark-900 rounded-xl p-4">
-            <Text className="text-white font-bold mb-3">Betting Stats</Text>
-            <View className="flex-row flex-wrap">
-              <StatItem label="Total Won" value={`$${stats.totalWinnings.toFixed(2)}`} color="text-green-400" />
-              <StatItem label="Total Lost" value={`$${stats.totalLosses.toFixed(2)}`} color="text-red-400" />
-              <StatItem label="Active Bets" value={String(stats.activeBets)} color="text-yellow-400" />
-              <StatItem label="Rank" value={stats.rankTitle} color="text-primary-400" />
+        <View style={{ paddingHorizontal: 16, marginBottom: 24 }}>
+          <View style={{ backgroundColor: '#1a1a24', borderRadius: 12, padding: 16 }}>
+            <Text style={{ color: 'white', fontWeight: 'bold', marginBottom: 12 }}>Betting Stats</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+              <StatItem label="Total Won" value={`$${stats.totalWinnings.toFixed(2)}`} color="#22c55e" />
+              <StatItem label="Total Lost" value={`$${stats.totalLosses.toFixed(2)}`} color="#ef4444" />
+              <StatItem label="Active Bets" value={String(stats.activeBets)} color="#facc15" />
+              <StatItem label="Rank" value={stats.rankTitle} color="#8b5cf6" />
             </View>
           </View>
         </View>
 
         {/* Active Bets */}
-        <View className="px-4">
-          <Text className="text-white text-xl font-bold mb-3">Active Bets ({activeBets.length})</Text>
+        <View style={{ paddingHorizontal: 16 }}>
+          <Text style={{ color: 'white', fontSize: 20, fontWeight: 'bold', marginBottom: 12 }}>Active Bets ({activeBets.length})</Text>
           {activeBets.length === 0 ? (
-            <View className="bg-dark-900 rounded-xl p-6 items-center mb-6">
-              <Text className="text-gray-400 mb-2">No active bets</Text>
+            <View style={{ backgroundColor: '#1a1a24', borderRadius: 12, padding: 24, alignItems: 'center', marginBottom: 24 }}>
+              <Text style={{ color: '#9ca3af', marginBottom: 8 }}>No active bets</Text>
               <Pressable
                 onPress={() => router.push('/')}
-                className="mt-2 bg-primary-500 px-6 py-2 rounded-lg"
+                style={{ marginTop: 8, backgroundColor: '#8b5cf6', paddingHorizontal: 24, paddingVertical: 8, borderRadius: 8 }}
               >
-                <Text className="text-white font-medium">Browse Markets</Text>
+                <Text style={{ color: 'white', fontWeight: '500' }}>Browse Markets</Text>
               </Pressable>
             </View>
           ) : (
@@ -124,18 +124,18 @@ export default function PortfolioScreen() {
         </View>
 
         {/* Recent Bets */}
-        <View className="px-4 mt-4">
-          <Text className="text-white text-xl font-bold mb-3">Recent Results</Text>
+        <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+          <Text style={{ color: 'white', fontSize: 20, fontWeight: 'bold', marginBottom: 12 }}>Recent Results</Text>
           {recentBets.length === 0 ? (
-            <View className="bg-dark-900 rounded-xl p-6 items-center">
-              <Text className="text-gray-400">No completed bets yet</Text>
+            <View style={{ backgroundColor: '#1a1a24', borderRadius: 12, padding: 24, alignItems: 'center' }}>
+              <Text style={{ color: '#9ca3af' }}>No completed bets yet</Text>
             </View>
           ) : (
             recentBets.map((bet) => <BetCard key={bet.id} bet={bet} />)
           )}
         </View>
 
-        <View className="h-8" />
+        <View style={{ height: 32 }} />
       </ScrollView>
     </View>
   );
@@ -143,9 +143,9 @@ export default function PortfolioScreen() {
 
 function StatItem({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <View className="w-1/2 py-2">
-      <Text className="text-gray-400 text-sm">{label}</Text>
-      <Text className={`${color} font-bold text-lg`}>{value}</Text>
+    <View style={{ width: '50%', paddingVertical: 8 }}>
+      <Text style={{ color: '#9ca3af', fontSize: 14 }}>{label}</Text>
+      <Text style={{ color, fontWeight: 'bold', fontSize: 18 }}>{value}</Text>
     </View>
   );
 }
@@ -163,48 +163,43 @@ function BetCard({ bet }: { bet: Bet }) {
   const odds = (bet.odds_at_placement / 100).toFixed(0);
 
   return (
-    <View className="bg-dark-900 rounded-xl p-4 mb-3 border border-dark-800">
-      <View className="flex-row justify-between items-start mb-2">
-        <Text className="text-white font-medium flex-1 mr-2" numberOfLines={2}>
+    <View style={{ backgroundColor: '#1a1a24', borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#2a2a3a' }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+        <Text style={{ color: 'white', fontWeight: '500', flex: 1, marginRight: 8 }} numberOfLines={2}>
           {market?.title || 'Unknown Market'}
         </Text>
-        <View className={`px-2 py-1 rounded ${
-          isWon ? 'bg-green-500/20' : 
-          isLost ? 'bg-red-500/20' : 
-          'bg-yellow-500/20'
-        }`}>
-          <Text className={`text-xs font-medium ${
-            isWon ? 'text-green-400' : 
-            isLost ? 'text-red-400' : 
-            'text-yellow-400'
-          }`}>
+        <View style={{ 
+          paddingHorizontal: 8, 
+          paddingVertical: 4, 
+          borderRadius: 4,
+          backgroundColor: isWon ? 'rgba(34, 197, 94, 0.2)' : isLost ? 'rgba(239, 68, 68, 0.2)' : 'rgba(250, 204, 21, 0.2)'
+        }}>
+          <Text style={{ 
+            fontSize: 12, 
+            fontWeight: '500',
+            color: isWon ? '#22c55e' : isLost ? '#ef4444' : '#facc15'
+          }}>
             {bet.status}
           </Text>
         </View>
       </View>
 
-      <View className="flex-row justify-between mt-2">
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
         <View>
-          <Text className="text-gray-400 text-sm">Position</Text>
-          <Text className={`font-bold ${
-            bet.side === 'YES' ? 'text-green-400' : 'text-red-400'
-          }`}>
+          <Text style={{ color: '#9ca3af', fontSize: 14 }}>Position</Text>
+          <Text style={{ fontWeight: 'bold', color: bet.side === 'YES' ? '#22c55e' : '#ef4444' }}>
             {bet.side} @ {odds}%
           </Text>
         </View>
         <View>
-          <Text className="text-gray-400 text-sm">Stake</Text>
-          <Text className="text-white font-bold">${amountUSD}</Text>
+          <Text style={{ color: '#9ca3af', fontSize: 14 }}>Stake</Text>
+          <Text style={{ color: 'white', fontWeight: 'bold' }}>${amountUSD}</Text>
         </View>
         <View>
-          <Text className="text-gray-400 text-sm">
+          <Text style={{ color: '#9ca3af', fontSize: 14 }}>
             {isActive ? 'Potential' : 'Payout'}
           </Text>
-          <Text className={`font-bold ${
-            isWon ? 'text-green-400' : 
-            isLost ? 'text-red-400' : 
-            'text-white'
-          }`}>
+          <Text style={{ fontWeight: 'bold', color: isWon ? '#22c55e' : isLost ? '#ef4444' : 'white' }}>
             ${isActive ? potentialPayoutUSD : actualPayoutUSD}
           </Text>
         </View>

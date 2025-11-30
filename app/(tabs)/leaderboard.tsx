@@ -1,38 +1,59 @@
-// StarTrade - Fan Leaderboard Screen
-// FOR ENTERTAINMENT PURPOSES ONLY
+// StarTrade - Virtual Currency Leaderboard
+// Compete for prizes with virtual currency!
 import { View, Text, ScrollView, Pressable, ActivityIndicator, RefreshControl } from 'react-native';
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { FanProfile } from '@/types/database';
+import { useAuthStore } from '@/stores/authStore';
+
+interface LeaderboardEntry {
+  id: string;
+  username: string;
+  avatar_url?: string;
+  total_virtual_value: number;
+  virtual_winnings: number;
+  virtual_wins: number;
+  virtual_total_bets: number;
+  virtual_win_rate: number;
+  rank: number;
+}
 
 export default function LeaderboardScreen() {
-  const [leaders, setLeaders] = useState<FanProfile[]>([]);
+  const user = useAuthStore((state) => state.user);
+  const [leaders, setLeaders] = useState<LeaderboardEntry[]>([]);
+  const [myRank, setMyRank] = useState<LeaderboardEntry | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [sortBy, setSortBy] = useState<'accuracy' | 'tokens' | 'predictions'>('accuracy');
+  const [sortBy, setSortBy] = useState<'value' | 'winnings' | 'winrate'>('value');
 
   const fetchLeaderboard = useCallback(async () => {
     setLoading(true);
     try {
-      let query = supabase.from('fan_profiles').select('*').limit(50);
+      // Fetch from virtual_leaderboard view
+      const { data, error } = await supabase
+        .from('virtual_leaderboard')
+        .select('*')
+        .order(
+          sortBy === 'value' ? 'total_virtual_value' : 
+          sortBy === 'winnings' ? 'virtual_winnings' : 
+          'virtual_win_rate', 
+          { ascending: false }
+        )
+        .limit(50);
 
-      if (sortBy === 'accuracy') {
-        query = query.order('prediction_accuracy', { ascending: false });
-      } else if (sortBy === 'tokens') {
-        query = query.order('lifetime_tokens_earned', { ascending: false });
-      } else {
-        query = query.order('correct_predictions', { ascending: false });
-      }
-
-      const { data, error } = await query;
       if (error) throw error;
-      setLeaders((data as FanProfile[]) || []);
+      setLeaders((data as LeaderboardEntry[]) || []);
+
+      // Find current user's rank
+      if (user && data) {
+        const myEntry = data.find((entry: LeaderboardEntry) => entry.id === user.id);
+        setMyRank(myEntry || null);
+      }
     } catch (e) {
       console.error('Error fetching leaderboard:', e);
     } finally {
       setLoading(false);
     }
-  }, [sortBy]);
+  }, [sortBy, user]);
 
   useEffect(() => {
     fetchLeaderboard();
@@ -46,69 +67,113 @@ export default function LeaderboardScreen() {
 
   if (loading && !refreshing) {
     return (
-      <View className="flex-1 bg-dark-950 items-center justify-center">
+      <View style={{ flex: 1, backgroundColor: '#0a0a0f', alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator size="large" color="#8b5cf6" />
-        <Text className="text-gray-400 mt-4">Loading leaderboard...</Text>
+        <Text style={{ color: '#9ca3af', marginTop: 16 }}>Loading leaderboard...</Text>
       </View>
     );
   }
 
   return (
-    <View className="flex-1 bg-dark-950 pt-14">
-      <View className="px-4 mb-4">
-        <Text className="text-white text-3xl font-bold">Fan Leaderboard</Text>
-        <Text className="text-gray-400 mt-1">Top prediction masters</Text>
+    <View style={{ flex: 1, backgroundColor: '#0a0a0f', paddingTop: 56 }}>
+      <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
+        <Text style={{ color: 'white', fontSize: 28, fontWeight: 'bold' }}>🏆 Leaderboard</Text>
+        <Text style={{ color: '#9ca3af', marginTop: 4 }}>Top virtual currency players</Text>
       </View>
 
-      {/* Entertainment Disclaimer */}
-      <View className="mx-4 mb-3 bg-primary-500/10 rounded-lg px-3 py-2">
-        <Text className="text-primary-400 text-xs text-center">
-          For entertainment only. Rankings based on prediction accuracy.
-        </Text>
+      {/* Prize Pool Banner */}
+      <View style={{ 
+        marginHorizontal: 16, 
+        marginBottom: 16, 
+        backgroundColor: 'rgba(234, 179, 8, 0.15)', 
+        borderRadius: 12, 
+        padding: 16,
+        borderWidth: 1,
+        borderColor: 'rgba(234, 179, 8, 0.3)',
+      }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ fontSize: 24, marginRight: 8 }}>🎁</Text>
+          <View>
+            <Text style={{ color: '#fcd34d', fontSize: 16, fontWeight: 'bold', textAlign: 'center' }}>
+              Monthly Prize Pool
+            </Text>
+            <Text style={{ color: '#fef3c7', fontSize: 12, textAlign: 'center' }}>
+              Top 3 win real prizes at month end!
+            </Text>
+          </View>
+        </View>
       </View>
+
+      {/* My Rank Card (if logged in) */}
+      {user && myRank && (
+        <View style={{ 
+          marginHorizontal: 16, 
+          marginBottom: 16, 
+          backgroundColor: 'rgba(139, 92, 246, 0.2)', 
+          borderRadius: 12, 
+          padding: 16,
+          borderWidth: 1,
+          borderColor: 'rgba(139, 92, 246, 0.4)',
+        }}>
+          <Text style={{ color: '#a78bfa', fontSize: 12, fontWeight: '600', marginBottom: 8 }}>YOUR RANKING</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={{ 
+                width: 48, 
+                height: 48, 
+                borderRadius: 24, 
+                backgroundColor: '#8b5cf6',
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                marginRight: 12,
+              }}>
+                <Text style={{ color: 'white', fontSize: 18, fontWeight: 'bold' }}>#{myRank.rank}</Text>
+              </View>
+              <View>
+                <Text style={{ color: 'white', fontWeight: '600' }}>{myRank.username || 'You'}</Text>
+                <Text style={{ color: '#9ca3af', fontSize: 12 }}>{myRank.virtual_wins} wins</Text>
+              </View>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={{ color: '#22c55e', fontSize: 20, fontWeight: 'bold' }}>
+                ${(myRank.total_virtual_value / 100).toLocaleString()}
+              </Text>
+              <Text style={{ color: '#6b7280', fontSize: 12 }}>virtual balance</Text>
+            </View>
+          </View>
+        </View>
+      )}
 
       {/* Sort Tabs */}
-      <View className="flex-row px-4 mb-4 gap-2">
+      <View style={{ flexDirection: 'row', paddingHorizontal: 16, marginBottom: 16, gap: 8 }}>
         <Pressable
-          onPress={() => setSortBy('accuracy')}
-          className={`flex-1 py-2 rounded-lg ${
-            sortBy === 'accuracy' ? 'bg-primary-500' : 'bg-dark-800'
-          }`}
+          onPress={() => setSortBy('value')}
+          style={{ flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: sortBy === 'value' ? '#8b5cf6' : '#1a1a24' }}
         >
-          <Text className={`text-center font-medium ${
-            sortBy === 'accuracy' ? 'text-white' : 'text-gray-400'
-          }`}>
-            Accuracy
+          <Text style={{ textAlign: 'center', fontWeight: '500', color: sortBy === 'value' ? 'white' : '#9ca3af', fontSize: 13 }}>
+            💰 Balance
           </Text>
         </Pressable>
         <Pressable
-          onPress={() => setSortBy('tokens')}
-          className={`flex-1 py-2 rounded-lg ${
-            sortBy === 'tokens' ? 'bg-primary-500' : 'bg-dark-800'
-          }`}
+          onPress={() => setSortBy('winnings')}
+          style={{ flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: sortBy === 'winnings' ? '#8b5cf6' : '#1a1a24' }}
         >
-          <Text className={`text-center font-medium ${
-            sortBy === 'tokens' ? 'text-white' : 'text-gray-400'
-          }`}>
-            Tokens
+          <Text style={{ textAlign: 'center', fontWeight: '500', color: sortBy === 'winnings' ? 'white' : '#9ca3af', fontSize: 13 }}>
+            📈 Profit
           </Text>
         </Pressable>
         <Pressable
-          onPress={() => setSortBy('predictions')}
-          className={`flex-1 py-2 rounded-lg ${
-            sortBy === 'predictions' ? 'bg-primary-500' : 'bg-dark-800'
-          }`}
+          onPress={() => setSortBy('winrate')}
+          style={{ flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: sortBy === 'winrate' ? '#8b5cf6' : '#1a1a24' }}
         >
-          <Text className={`text-center font-medium ${
-            sortBy === 'predictions' ? 'text-white' : 'text-gray-400'
-          }`}>
-            Wins
+          <Text style={{ textAlign: 'center', fontWeight: '500', color: sortBy === 'winrate' ? 'white' : '#9ca3af', fontSize: 13 }}>
+            🎯 Win Rate
           </Text>
         </Pressable>
       </View>
 
       <ScrollView
-        className="flex-1 px-4"
+        style={{ flex: 1, paddingHorizontal: 16 }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -118,106 +183,129 @@ export default function LeaderboardScreen() {
         }
       >
         {leaders.length === 0 ? (
-          <View className="items-center py-12">
-            <Text className="text-gray-400 text-lg">No fans yet</Text>
-            <Text className="text-gray-500 text-sm mt-2">Be the first!</Text>
+          <View style={{ alignItems: 'center', paddingVertical: 48 }}>
+            <Text style={{ fontSize: 48, marginBottom: 16 }}>🎮</Text>
+            <Text style={{ color: 'white', fontSize: 18, fontWeight: '600' }}>No players yet</Text>
+            <Text style={{ color: '#6b7280', fontSize: 14, marginTop: 8, textAlign: 'center' }}>
+              Place virtual bets to climb the leaderboard!
+            </Text>
           </View>
         ) : (
           leaders.map((leader, index) => (
-            <LeaderCard key={leader.id} leader={leader} rank={index + 1} sortBy={sortBy} />
+            <LeaderCard 
+              key={leader.id} 
+              leader={leader} 
+              rank={index + 1} 
+              sortBy={sortBy}
+              isCurrentUser={user?.id === leader.id}
+            />
           ))
         )}
-        <View className="h-8" />
+        <View style={{ height: 100 }} />
       </ScrollView>
     </View>
   );
 }
 
 interface LeaderCardProps {
-  leader: FanProfile;
+  leader: LeaderboardEntry;
   rank: number;
-  sortBy: 'accuracy' | 'tokens' | 'predictions';
+  sortBy: 'value' | 'winnings' | 'winrate';
+  isCurrentUser: boolean;
 }
 
-function LeaderCard({ leader, rank, sortBy }: LeaderCardProps) {
+function LeaderCard({ leader, rank, sortBy, isCurrentUser }: LeaderCardProps) {
   const isTop3 = rank <= 3;
   const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
 
+  // Tier based on balance
+  const getTier = () => {
+    const balance = leader.total_virtual_value / 100;
+    if (balance >= 5000) return { name: 'Diamond', color: '#60a5fa', bg: 'rgba(96, 165, 250, 0.2)' };
+    if (balance >= 2500) return { name: 'Platinum', color: '#a78bfa', bg: 'rgba(167, 139, 250, 0.2)' };
+    if (balance >= 1500) return { name: 'Gold', color: '#fcd34d', bg: 'rgba(252, 211, 77, 0.2)' };
+    if (balance >= 1000) return { name: 'Silver', color: '#9ca3af', bg: 'rgba(156, 163, 175, 0.2)' };
+    return { name: 'Bronze', color: '#d97706', bg: 'rgba(217, 119, 6, 0.2)' };
+  };
+
+  const tier = getTier();
+
   return (
-    <View className={`bg-dark-900 rounded-xl p-4 mb-3 border ${
-      isTop3 ? 'border-primary-500/50' : 'border-dark-800'
-    }`}>
-      <View className="flex-row items-center">
+    <View style={{ 
+      backgroundColor: isCurrentUser ? 'rgba(139, 92, 246, 0.15)' : '#1a1a24', 
+      borderRadius: 12, 
+      padding: 16, 
+      marginBottom: 12, 
+      borderWidth: 1, 
+      borderColor: isCurrentUser ? 'rgba(139, 92, 246, 0.5)' : isTop3 ? 'rgba(234, 179, 8, 0.3)' : '#2a2a3a' 
+    }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         {/* Rank */}
-        <View className={`w-10 h-10 rounded-full items-center justify-center mr-3 ${
-          isTop3 ? 'bg-primary-500/20' : 'bg-dark-800'
-        }`}>
+        <View style={{ 
+          width: 44, 
+          height: 44, 
+          borderRadius: 22, 
+          alignItems: 'center', 
+          justifyContent: 'center', 
+          marginRight: 12, 
+          backgroundColor: isTop3 ? 'rgba(234, 179, 8, 0.2)' : '#2a2a3a' 
+        }}>
           {medal ? (
-            <Text className="text-xl">{medal}</Text>
+            <Text style={{ fontSize: 22 }}>{medal}</Text>
           ) : (
-            <Text className="text-gray-400 font-bold">{rank}</Text>
+            <Text style={{ color: '#9ca3af', fontWeight: 'bold', fontSize: 16 }}>{rank}</Text>
           )}
         </View>
 
         {/* User Info */}
-        <View className="flex-1">
-          <Text className="text-white font-semibold">{leader.username}</Text>
-          <View className="flex-row items-center mt-1">
-            <View className={`px-2 py-0.5 rounded ${
-              leader.rank_title === 'Legend' ? 'bg-yellow-500/20' :
-              leader.rank_title === 'Celebrity Expert' ? 'bg-purple-500/20' :
-              leader.rank_title === 'Super Fan' ? 'bg-blue-500/20' :
-              'bg-gray-500/20'
-            }`}>
-              <Text className={`text-xs ${
-                leader.rank_title === 'Legend' ? 'text-yellow-400' :
-                leader.rank_title === 'Celebrity Expert' ? 'text-purple-400' :
-                leader.rank_title === 'Super Fan' ? 'text-blue-400' :
-                'text-gray-400'
-              }`}>
-                {leader.rank_title}
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: 'white', fontWeight: '600', fontSize: 15 }}>
+            {leader.username || 'Anonymous'}
+            {isCurrentUser && <Text style={{ color: '#a78bfa' }}> (You)</Text>}
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 8 }}>
+            <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, backgroundColor: tier.bg }}>
+              <Text style={{ fontSize: 11, color: tier.color, fontWeight: '600' }}>
+                {tier.name}
               </Text>
             </View>
+            <Text style={{ color: '#6b7280', fontSize: 12 }}>
+              {leader.virtual_wins}W / {leader.virtual_total_bets - leader.virtual_wins}L
+            </Text>
           </View>
         </View>
 
         {/* Stats */}
-        <View className="items-end">
-          {sortBy === 'accuracy' && (
+        <View style={{ alignItems: 'flex-end' }}>
+          {sortBy === 'value' && (
             <>
-              <Text className="text-green-400 text-xl font-bold">
-                {leader.prediction_accuracy?.toFixed(0) || 0}%
+              <Text style={{ color: '#22c55e', fontSize: 18, fontWeight: 'bold' }}>
+                ${(leader.total_virtual_value / 100).toLocaleString()}
               </Text>
-              <Text className="text-gray-500 text-xs">accuracy</Text>
+              <Text style={{ color: '#6b7280', fontSize: 11 }}>balance</Text>
             </>
           )}
-          {sortBy === 'tokens' && (
+          {sortBy === 'winnings' && (
             <>
-              <Text className="text-primary-400 text-xl font-bold">
-                🎫 {leader.lifetime_tokens_earned?.toLocaleString() || 0}
+              <Text style={{ 
+                color: leader.virtual_winnings >= 0 ? '#22c55e' : '#ef4444', 
+                fontSize: 18, 
+                fontWeight: 'bold' 
+              }}>
+                {leader.virtual_winnings >= 0 ? '+' : ''}${(leader.virtual_winnings / 100).toLocaleString()}
               </Text>
-              <Text className="text-gray-500 text-xs">lifetime</Text>
+              <Text style={{ color: '#6b7280', fontSize: 11 }}>profit</Text>
             </>
           )}
-          {sortBy === 'predictions' && (
+          {sortBy === 'winrate' && (
             <>
-              <Text className="text-white text-xl font-bold">
-                {leader.correct_predictions || 0}
+              <Text style={{ color: '#22c55e', fontSize: 18, fontWeight: 'bold' }}>
+                {leader.virtual_win_rate?.toFixed(0) || 0}%
               </Text>
-              <Text className="text-gray-500 text-xs">correct</Text>
+              <Text style={{ color: '#6b7280', fontSize: 11 }}>win rate</Text>
             </>
           )}
         </View>
-      </View>
-
-      {/* Additional Stats */}
-      <View className="flex-row justify-between mt-3 pt-3 border-t border-dark-800">
-        <Text className="text-gray-500 text-xs">
-          {leader.total_predictions || 0} predictions
-        </Text>
-        <Text className="text-gray-500 text-xs">
-          {leader.correct_predictions || 0}/{leader.total_predictions || 0} correct
-        </Text>
       </View>
     </View>
   );

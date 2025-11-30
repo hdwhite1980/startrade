@@ -1,48 +1,34 @@
-// StarTrade Hooks - Real USDC Betting System
+// StarTrade Hooks - USDC Betting
+// Re-export all hooks from a single entry point
 
 // Market hooks
-export { 
-  useMarkets, 
+export {
+  useMarkets,
   useMarket,
+  useActiveMarkets,
   useFeaturedMarkets,
+  useMarketsByCategory,
+  useCelebrityMarkets,
   useCelebrities,
   useCelebrity,
-  useChallenges,
+  useMarketSearch,
+  useCelebritySearch,
 } from './useMarkets';
 
-export type { 
-  Market, 
-  MarketCategory,
-  Celebrity,
-  CelebrityCategory,
-  PredictionChallenge,
-} from './useMarkets';
-
-// Betting hooks (Real USDC)
+// Bet hooks
 export {
   useBets,
-  useMyBets,
+  useBet,
   useActiveBets,
   useBetHistory,
-  useMarketBets,
-  useUserStats,
-  usePortfolioStats,
+  useChallenges,
   useOpenChallenges,
-  useMyChallenges,
-  placeBet,
-  cancelBet,
-  createChallenge,
-  acceptChallenge,
-  calculateBettingStats,
+  useBettingStats,
 } from './useBets';
 
-export type {
-  Bet,
-  BetSide,
-  BetStatus,
-  UserProfile,
-  Challenge,
-} from './useBets';
-
-// Wallet hooks
+// Wallet hook
 export { useWallet } from './useWallet';
+
+// Types
+export type { Market, MarketCategory, Celebrity, CelebrityCategory } from './useMarkets';
+export type { Bet, Challenge, BetSide, BetStatus } from './useBets';

@@ -1,6 +1,6 @@
-// StarTrade - AI Market Generation Edge Function
-// Processes news headlines and generates betting markets using OpenAI GPT-4
-
+// Process News - AI Market Generation for StarTrade
+// Creates celebrities on-demand with researched data when market involves them
+// IMPORTANT: Only creates markets for FUTURE events that haven't happened yet
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -9,322 +9,401 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// AI Configuration
-const AI_CONFIG = {
-  model: 'gpt-4-turbo-preview',
-  maxTokens: 1024,
-  temperature: 0.7,
+// Get current date for context
+const getCurrentDateContext = () => {
+  const now = new Date();
+  return {
+    date: now.toISOString().split('T')[0],
+    year: now.getFullYear(),
+    month: now.toLocaleString('en-US', { month: 'long' }),
+    dayOfWeek: now.toLocaleString('en-US', { weekday: 'long' }),
+  };
 };
 
-interface AIMarketResponse {
-  is_bettable: boolean;
-  suggested_title: string;
-  suggested_description: string;
-  suggested_category: string;
+interface NewsItem {
+  id: string;
+  headline: string;
+  summary: string;
+  url: string;
+  source_outlet: string;
+  published_at: string;
+}
+
+interface MarketSuggestion {
+  title: string;
+  description: string;
+  category: string;
   celebrity_name: string | null;
+  celebrity_category: string | null;
   yes_odds: number;
   no_odds: number;
   confidence: number;
   reasoning: string;
-  viral_score: number;
-  resolution_criteria: {
-    source: string;
-    metric?: string;
-    threshold?: number;
-    date?: string;
+  closes_in_days: number;
+  resolves_in_days: number;
+}
+
+interface CelebrityResearch {
+  name: string;
+  category: string;
+  bio: string;
+  metrics: {
+    spotify_streams: number;
+    youtube_views: number;
+    instagram_followers: number;
+    twitter_followers: number;
+    tiktok_followers: number;
+    trend_score: number;
+    sentiment_score: number;
   };
-  suggested_close_days: number;
-  suggested_resolve_days: number;
-}
-
-async function generateMarketFromNews(
-  headline: string,
-  summary: string | null,
-  source: string,
-  publishedAt: string,
-  celebrityNames: string[],
-  openaiApiKey: string
-): Promise<AIMarketResponse | null> {
-  const prompt = `You are an AI assistant for StarTrade, a celebrity prediction market platform. Analyze this entertainment news headline and determine if it can generate a betting market.
-
-NEWS HEADLINE: "${headline}"
-${summary ? `SUMMARY: "${summary}"` : ''}
-SOURCE: ${source}
-PUBLISHED: ${publishedAt}
-
-KNOWN CELEBRITIES ON PLATFORM: ${celebrityNames.join(', ') || 'None yet'}
-
-RULES FOR MARKETS:
-1. Must be about a verifiable future outcome
-2. Must resolve within 1-90 days
-3. Must be based on public data (charts, streams, awards, etc.)
-4. Cannot be about personal life, scandals, or sensitive topics
-5. Must be engaging and have viral potential
-6. YES/NO odds must sum to 100
-
-RESPOND IN THIS EXACT JSON FORMAT:
-{
-  "is_bettable": true/false,
-  "suggested_title": "Will [X] achieve [Y] by [date]?",
-  "suggested_description": "Detailed description of the market...",
-  "suggested_category": "MUSIC|FILM|SPORTS|SOCIAL|AWARDS|CHARTS|STREAMING|OTHER",
-  "celebrity_name": "Name if mentioned, or null",
-  "yes_odds": 50,
-  "no_odds": 50,
-  "confidence": 75,
-  "reasoning": "Why these odds...",
-  "viral_score": 7,
-  "resolution_criteria": {
-    "source": "spotify|billboard|youtube|...",
-    "metric": "streams|position|subscribers|...",
-    "threshold": 1000000000,
-    "date": "2025-01-15"
-  },
-  "suggested_close_days": 7,
-  "suggested_resolve_days": 8
-}
-
-If the headline cannot generate a valid market, set is_bettable to false and explain why in reasoning.`;
-
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${openaiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: AI_CONFIG.model,
-        max_tokens: AI_CONFIG.maxTokens,
-        temperature: AI_CONFIG.temperature,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert at analyzing entertainment news and creating engaging prediction markets. Always respond with valid JSON.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        response_format: { type: 'json_object' },
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      console.error('OpenAI API error:', error);
-      return null;
-    }
-
-    const data = await response.json();
-    const content = data.choices[0]?.message?.content;
-
-    if (!content) {
-      return null;
-    }
-
-    return JSON.parse(content) as AIMarketResponse;
-  } catch (error) {
-    console.error('AI generation failed:', error);
-    return null;
-  }
 }
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    // Get environment variables
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')!;
+    const openaiKey = Deno.env.get('OPENAI_API_KEY')!;
 
-    if (!openaiApiKey) {
-      throw new Error('OPENAI_API_KEY not configured');
-    }
-
-    // Create Supabase client with service role (bypasses RLS)
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get unprocessed news articles
-    const { data: articles, error: fetchError } = await supabase
+    // Fetch unprocessed news
+    const { data: newsItems, error: newsError } = await supabase
       .from('news_feed')
       .select('*')
       .eq('processed', false)
       .limit(10);
 
-    if (fetchError) {
-      throw new Error(`Failed to fetch news: ${fetchError.message}`);
-    }
-
-    if (!articles || articles.length === 0) {
+    if (newsError) throw newsError;
+    if (!newsItems || newsItems.length === 0) {
       return new Response(
-        JSON.stringify({ message: 'No unprocessed articles', processed: 0 }),
+        JSON.stringify({ message: 'No unprocessed news items' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Get all celebrities for matching
-    const { data: celebrities } = await supabase
-      .from('celebrities')
-      .select('id, name, slug');
-
-    const celebrityNames = celebrities?.map((c) => c.name) || [];
-
-    let processed = 0;
     let marketsCreated = 0;
+    let celebritiesCreated = 0;
 
-    for (const article of articles) {
-      // Generate market suggestion using AI
-      const aiResponse = await generateMarketFromNews(
-        article.headline,
-        article.summary,
-        article.source_outlet || 'Unknown',
-        article.published_at || new Date().toISOString(),
-        celebrityNames,
-        openaiApiKey
-      );
+    for (const news of newsItems as NewsItem[]) {
+      try {
+        // Get current date context for AI
+        const dateContext = getCurrentDateContext();
+        
+  // Ask AI to analyze and create market suggestion
+  // FOCUS: Only high-stakes, polarizing topics with clear outcomes
+  const analysisPrompt = `You are a prediction market expert who creates VIRAL, POLARIZING betting questions.
+Your job is to find the most CONTROVERSIAL and ENGAGING angles on news stories, and REJECT soft content that people won't fight over.
 
-      if (aiResponse && aiResponse.is_bettable) {
-        // Find celebrity if mentioned
-        let celebrityId: string | null = null;
-        if (aiResponse.celebrity_name) {
-          const matchedCelebrity = celebrities?.find(
-            (c) => c.name.toLowerCase().includes(aiResponse.celebrity_name!.toLowerCase())
-          );
-          celebrityId = matchedCelebrity?.id || null;
+CURRENT DATE: ${dateContext.date} (${dateContext.dayOfWeek}, ${dateContext.month} ${dateContext.year})
+
+NEWS TO ANALYZE:
+Headline: "${news.headline}"
+Summary: "${news.summary || 'No summary available'}"
+Source: ${news.source_outlet}
+Published: ${news.published_at || 'Unknown'}
+
+=== WHAT MAKES A GREAT MARKET ===
+
+🔥 HIGH-STAKES DRAMA - Things with real consequences (PRIORITIZE THESE):
+- Legal battles: "Will Diddy get less than 10 years?" "Will Young Thug's charges be dropped?"
+- Career-ending moments: "Will [artist] ever release music again?"
+- Billion-dollar decisions: "Will the Drake vs Kendrick beef result in a diss track response?"
+
+🎮 GAMING & ESPORTS - Huge passionate fanbases (MEGATITLES ONLY):
+- "Will GTA 6 actually release in Fall 2025?"
+- "Will [game] be delayed again?"
+- "Will [streamer] hit 100K subscribers by [date]?"
+- "Will [esports team] win the championship?"
+
+💔 RELATIONSHIP DRAMA - Only A-list couples or confirmed rumors:
+- "Will [celebrity couple] break up by end of year?"
+- "Will [artist] confirm dating [person]?"
+- Celebrity divorces, cheating scandals, surprise marriages
+
+🏆 AWARDS & ACHIEVEMENTS - Clear winners/losers (TOP awards only):
+- "Will [artist] win Album of the Year at the Grammys?"
+- "Will [movie] win Best Picture?"
+- "Will [artist] go #1 on Billboard with their next single?"
+- "Will [streamer] win Streamer of the Year?"
+
+📉 FAILS & FLOPS - Schadenfreude sells (avoid generic PR fluff):
+- "Will [hyped project] flop on release?"
+- "Will [tour] get cancelled?"
+- "Will [controversial figure] face consequences?"
+
+🤝 BEEFS & FEUDS - Pick a side (only real, current feuds):
+- Artist vs Artist battles
+- Label disputes going public
+- Social media wars
+
+=== POLARIZING EXAMPLES (GOOD) ===
+✅ "Will Diddy be found GUILTY on federal charges?"
+✅ "Will GTA 6 actually release before 2026?"
+✅ "Will Drake drop a Kendrick response track?"
+✅ "Will Taylor Swift and Travis Kelce get engaged in 2025?"
+✅ "Will Kanye's next album go #1?"
+✅ "Will the Minecraft movie flop at box office?"
+✅ "Will Young Thug get released from prison this year?"
+✅ "Will Ice Spice fall off in 2025?" 
+✅ "Will Beyoncé finally win Album of the Year?"
+✅ "Will xQc hit 15 million followers this year?"
+
+=== REJECT THESE (BORING / LOW-STAKES) ===
+❌ Brand campaigns, endorsements, micro-trends
+❌ Local politics without national attention
+❌ Soft PR news (new podcast, minor collab, charity events)
+❌ Vague predictions like "will release music" or "will do well"
+❌ Anything about past events
+
+=== RULES ===
+1. ONLY future events that haven't happened yet
+2. Must be VERIFIABLE with clear YES/NO outcome
+3. Must be something people will ARGUE about
+4. Stakes should feel REAL (careers, money, relationships, legacy)
+5. Question should make someone say "Oh I HAVE to bet on this"
+
+=== ODDS GUIDANCE ===
+- 5000 = 50% (coin flip - maximum engagement!)
+- 6500 = 65% likely (slight favorite)
+- 3500 = 35% likely (underdog but possible)
+- 7500 = 75% likely (heavy favorite)
+- 2500 = 25% likely (long shot)
+- Controversial topics should be closer to 50/50 to maximize bets on both sides
+
+=== VIRALITY SCORE ===
+Rate 1-10 how likely this question is to:
+- Get shared on social media
+- Start arguments in comments
+- Make people NEED to place a bet
+
+Only create markets with virality score 8+ (otherwise reject)
+
+Respond with JSON only:
+{
+  "should_create_market": boolean,
+  "rejection_reason": "Why rejected (if not creating market)",
+  "is_future_event": boolean,
+  "virality_score": 1-10,
+  "event_date_estimate": "YYYY-MM-DD or 'unknown'",
+  "market": {
+  "title": "Polarizing YES/NO question that people will FIGHT over (legal, release date, feud, awards)",
+    "description": "What we're predicting and exactly how it resolves",
+  "category": "LEGAL|GAMING|AWARDS|MUSIC|FILM|STREAMING|SOCIAL|OTHER",
+    "celebrity_name": "Main celebrity/company involved or null",
+    "celebrity_category": "Music|Film|Social Media|TV|Gaming|Tech or null",
+    "yes_odds": number 1500-8500 (closer to 5000 = more bets),
+    "no_odds": number 1500-8500,
+    "confidence": 1-100,
+  "reasoning": "Why people will be DIVIDED on this (cite specific stakes, dates, outcomes)",
+    "closes_in_days": number,
+    "resolves_in_days": number
+  }
+}`;
+
+        const analysisResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openaiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4-turbo-preview',
+            messages: [{ role: 'user', content: analysisPrompt }],
+            response_format: { type: 'json_object' },
+            temperature: 0.7,
+          }),
+        });
+
+        const analysisData = await analysisResponse.json();
+        const analysis = JSON.parse(analysisData.choices[0].message.content);
+
+        // Mark as processed with analysis
+        await supabase
+          .from('news_feed')
+          .update({ 
+            processed: true, 
+            processable: analysis.should_create_market && analysis.is_future_event,
+            ai_analysis: analysis
+          })
+          .eq('id', news.id);
+
+        // CRITICAL: Double-check this is a future event
+        if (!analysis.should_create_market) {
+          console.log(`Skipped: ${analysis.rejection_reason || 'AI rejected'}`);
+          continue;
+        }
+        
+        if (!analysis.is_future_event) {
+          console.log(`Skipped: Event is not in the future`);
+          continue;
         }
 
-        // Calculate dates
-        const closeDate = new Date();
-        closeDate.setDate(closeDate.getDate() + aiResponse.suggested_close_days);
+        // Check virality score - only create markets people will actually bet on
+        if (analysis.virality_score < 8) {
+          console.log(`Skipped: Low virality score (${analysis.virality_score}/10) - not polarizing enough`);
+          continue;
+        }
 
-        const resolveDate = new Date();
-        resolveDate.setDate(resolveDate.getDate() + aiResponse.suggested_resolve_days);
+        // Additional validation: ensure closes_in_days is reasonable
+        const suggestion: MarketSuggestion = analysis.market;
+        if (suggestion.closes_in_days < 1 || suggestion.closes_in_days > 365) {
+          console.log(`Skipped: Invalid closes_in_days (${suggestion.closes_in_days})`);
+          continue;
+        }
 
-        // Determine if auto-publish (high confidence + viral)
-        const autoPublish = aiResponse.viral_score >= 8 && aiResponse.confidence >= 80;
+        // Extra hard filters to keep output on-brand
+        const titleLower = suggestion.title.toLowerCase();
+        const isLowStakesTrend = /(trend|look|outfit|fashion|meme|viral|beauty|sale|deal)/i.test(titleLower);
+        if (isLowStakesTrend) {
+          console.log(`Skipped: Low-stakes/trend topic: ${suggestion.title}`);
+          continue;
+        }
 
-        // Store suggestion
-        const { data: suggestion, error: suggestionError } = await supabase
-          .from('ai_market_suggestions')
-          .insert({
-            source_headline: article.headline,
-            source_url: article.url,
-            source_published_at: article.published_at,
-            source_outlet: article.source_outlet,
-            suggested_title: aiResponse.suggested_title,
-            suggested_description: aiResponse.suggested_description,
-            suggested_category: aiResponse.suggested_category,
-            suggested_celebrity_id: celebrityId,
-            suggested_yes_odds: aiResponse.yes_odds * 100, // Convert to basis points
-            suggested_no_odds: aiResponse.no_odds * 100,
-            suggested_closes_at: closeDate.toISOString(),
-            suggested_resolves_at: resolveDate.toISOString(),
-            ai_confidence: aiResponse.confidence,
-            ai_reasoning: aiResponse.reasoning,
-            ai_viral_score: aiResponse.viral_score,
-            resolution_criteria: aiResponse.resolution_criteria,
-            status: autoPublish ? 'AUTO_PUBLISHED' : 'PENDING',
-          })
-          .select('id')
-          .single();
+        let celebrityId: string | null = null;
 
-        if (suggestionError) {
-          console.error('Failed to store suggestion:', suggestionError);
-        } else if (autoPublish && suggestion) {
-          // Auto-create market for high-confidence suggestions
-          const { data: market, error: marketError } = await supabase
-            .from('markets')
-            .insert({
-              celebrity_id: celebrityId,
-              title: aiResponse.suggested_title,
-              description: aiResponse.suggested_description,
-              category: aiResponse.suggested_category,
-              status: 'ACTIVE',
-              yes_odds: aiResponse.yes_odds * 100,
-              no_odds: aiResponse.no_odds * 100,
-              initial_yes_odds: aiResponse.yes_odds * 100,
-              initial_no_odds: aiResponse.no_odds * 100,
-              closes_at: closeDate.toISOString(),
-              resolves_at: resolveDate.toISOString(),
-              ai_generated: true,
-              ai_confidence: aiResponse.confidence,
-              ai_reasoning: aiResponse.reasoning,
-              source_headline: article.headline,
-              source_url: article.url,
-            })
+        // If market involves a celebrity, find or create them
+        if (suggestion.celebrity_name) {
+          const slug = suggestion.celebrity_name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+          
+          // Check if celebrity exists
+          const { data: existingCelebrity } = await supabase
+            .from('celebrities')
             .select('id')
+            .eq('slug', slug)
             .single();
 
-          if (!marketError && market) {
-            // Link suggestion to market
-            await supabase
-              .from('ai_market_suggestions')
-              .update({ market_id: market.id })
-              .eq('id', suggestion.id);
+          if (existingCelebrity) {
+            celebrityId = existingCelebrity.id;
+          } else {
+            // Research celebrity data with AI
+            const researchPrompt = `Research this celebrity and provide real estimated data:
 
-            marketsCreated++;
+Name: ${suggestion.celebrity_name}
+Category: ${suggestion.celebrity_category || 'Entertainment'}
 
-            // Create AI insight for new market
-            await supabase.from('ai_insights').insert({
-              market_id: market.id,
-              celebrity_id: celebrityId,
-              type: 'BREAKING_NEWS',
-              title: '🤖 AI-Generated Market',
-              description: `New market created: ${aiResponse.suggested_title}`,
-              priority: 'HIGH',
-              emoji: '🔥',
+Provide realistic estimates based on your knowledge. Respond with JSON only:
+{
+  "name": "${suggestion.celebrity_name}",
+  "category": "${suggestion.celebrity_category || 'Music'}",
+  "bio": "Brief 1-2 sentence bio",
+  "metrics": {
+    "spotify_streams": estimated monthly listeners or 0 if not musician,
+    "youtube_views": estimated total views,
+    "instagram_followers": estimated count,
+    "twitter_followers": estimated count,
+    "tiktok_followers": estimated count,
+    "trend_score": 1-100 based on current relevance,
+    "sentiment_score": -100 to 100 based on public perception
+  }
+}`;
+
+            const researchResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${openaiKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'gpt-4-turbo-preview',
+                messages: [{ role: 'user', content: researchPrompt }],
+                response_format: { type: 'json_object' },
+                temperature: 0.3,
+              }),
             });
+
+            const researchData = await researchResponse.json();
+            const research: CelebrityResearch = JSON.parse(researchData.choices[0].message.content);
+
+            // Create celebrity
+            const { data: newCelebrity, error: celebError } = await supabase
+              .from('celebrities')
+              .insert({
+                name: research.name,
+                slug: slug,
+                category: research.category,
+                bio: research.bio,
+                metrics: research.metrics,
+              })
+              .select('id')
+              .single();
+
+            if (celebError) {
+              console.error('Error creating celebrity:', celebError);
+            } else {
+              celebrityId = newCelebrity.id;
+              celebritiesCreated++;
+            }
           }
         }
 
-        // Update news article
-        await supabase
-          .from('news_feed')
-          .update({
-            processed: true,
-            processable: true,
-            ai_analysis: aiResponse,
-            market_generated: autoPublish,
-            suggestion_id: suggestion?.id,
-          })
-          .eq('id', article.id);
-      } else {
-        // Mark as processed but not bettable
-        await supabase
-          .from('news_feed')
-          .update({
-            processed: true,
-            processable: false,
-            ai_analysis: aiResponse,
-          })
-          .eq('id', article.id);
-      }
+        // Calculate dates
+        const now = new Date();
+        const closesAt = new Date(now.getTime() + suggestion.closes_in_days * 24 * 60 * 60 * 1000);
+        const resolvesAt = new Date(now.getTime() + suggestion.resolves_in_days * 24 * 60 * 60 * 1000);
 
-      processed++;
+        // Create market
+        const { error: marketError } = await supabase
+          .from('markets')
+          .insert({
+            celebrity_id: celebrityId,
+            title: suggestion.title,
+            description: suggestion.description,
+            category: suggestion.category,
+            status: 'ACTIVE',
+            yes_odds: suggestion.yes_odds,
+            no_odds: suggestion.no_odds,
+            initial_yes_odds: suggestion.yes_odds,
+            initial_no_odds: suggestion.no_odds,
+            closes_at: closesAt.toISOString(),
+            resolves_at: resolvesAt.toISOString(),
+            ai_generated: true,
+            ai_confidence: suggestion.confidence,
+            ai_reasoning: suggestion.reasoning,
+            source_headline: news.headline,
+            source_url: news.url,
+          });
+
+        if (marketError) {
+          console.error('Error creating market:', marketError);
+        } else {
+          marketsCreated++;
+          
+          // Mark news as market generated
+          await supabase
+            .from('news_feed')
+            .update({ market_generated: true })
+            .eq('id', news.id);
+        }
+
+      } catch (itemError) {
+        console.error('Error processing news item:', itemError);
+        // Mark as processed to avoid infinite loop
+        await supabase
+          .from('news_feed')
+          .update({ processed: true, processable: false })
+          .eq('id', news.id);
+      }
     }
 
     return new Response(
       JSON.stringify({
         message: 'Processing complete',
-        processed,
+        processed: newsItems.length,
         marketsCreated,
+        celebritiesCreated,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
+
   } catch (error) {
-    console.error('Edge function error:', error);
+    console.error('Error:', error);
     return new Response(
       JSON.stringify({ error: error.message }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

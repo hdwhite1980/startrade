@@ -9,21 +9,6 @@ import type { Market, MarketCategory, Celebrity, CelebrityCategory } from '@/typ
 
 export type { Market, MarketCategory, Celebrity, CelebrityCategory };
 
-export interface PredictionChallenge {
-  id: string;
-  celebrity_id: string;
-  title: string;
-  description: string;
-  category: MarketCategory;
-  status: 'ACTIVE' | 'UPCOMING' | 'CLOSED' | 'RESOLVED';
-  fan_sentiment: { yes: number; no: number };
-  total_predictions: number;
-  challenge_ends_at: string;
-  resolves_at: string;
-  resolved_outcome: boolean | null;
-  created_at: string;
-}
-
 interface UseMarketsOptions {
   category?: MarketCategory;
   status?: 'ACTIVE' | 'UPCOMING' | 'CLOSED' | 'RESOLVED';
@@ -34,12 +19,6 @@ interface UseMarketsOptions {
 
 interface UseCelebritiesOptions {
   category?: string;
-  limit?: number;
-}
-
-interface UseChallengesOptions {
-  celebrityId?: string;
-  status?: string;
   limit?: number;
 }
 
@@ -67,13 +46,6 @@ interface UseCelebritiesReturn {
 
 interface UseCelebrityReturn {
   celebrity: Celebrity | null;
-  loading: boolean;
-  error: Error | null;
-  refetch: () => Promise<void>;
-}
-
-interface UseChallengesReturn {
-  challenges: PredictionChallenge[];
   loading: boolean;
   error: Error | null;
   refetch: () => Promise<void>;
@@ -138,28 +110,6 @@ export function useMarkets(options: UseMarketsOptions = {}): UseMarketsReturn {
     fetchMarkets();
   }, [fetchMarkets]);
 
-  // Real-time subscription
-  useEffect(() => {
-    const subscription = supabase
-      .channel('markets_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'markets',
-        },
-        () => {
-          fetchMarkets();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [fetchMarkets]);
-
   return {
     markets,
     loading,
@@ -169,7 +119,7 @@ export function useMarkets(options: UseMarketsOptions = {}): UseMarketsReturn {
 }
 
 /**
- * Fetch single market by ID
+ * Fetch single market by ID - simplified without realtime to avoid infinite loops
  */
 export function useMarket(marketId: string | null): UseMarketReturn {
   const [market, setMarket] = useState<Market | null>(null);
@@ -196,9 +146,7 @@ export function useMarket(marketId: string | null): UseMarketReturn {
         .eq('id', marketId)
         .single();
 
-      if (fetchError) {
-        throw fetchError;
-      }
+      if (fetchError) throw fetchError;
 
       setMarket(data as Market);
       setCelebrity(data.celebrity as Celebrity);
@@ -212,31 +160,6 @@ export function useMarket(marketId: string | null): UseMarketReturn {
   useEffect(() => {
     fetchMarket();
   }, [fetchMarket]);
-
-  // Real-time subscription for this market
-  useEffect(() => {
-    if (!marketId) return;
-
-    const subscription = supabase
-      .channel(`market_${marketId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'markets',
-          filter: `id=eq.${marketId}`,
-        },
-        () => {
-          fetchMarket();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [marketId, fetchMarket]);
 
   return {
     market,
@@ -301,7 +224,7 @@ export function useCelebrities(options: UseCelebritiesOptions = {}): UseCelebrit
       let query = supabase
         .from('celebrities')
         .select('*')
-        .order('career_score', { ascending: false });
+        .order('created_at', { ascending: false });
 
       if (options.category) {
         query = query.eq('category', options.category);
@@ -381,64 +304,6 @@ export function useCelebrity(celebrityId: string | undefined): UseCelebrityRetur
     loading,
     error,
     refetch: fetchCelebrity,
-  };
-}
-
-// =====================================================
-// CHALLENGE HOOKS (for entertainment/fan tokens)
-// =====================================================
-
-/**
- * Fetch prediction challenges
- */
-export function useChallenges(options: UseChallengesOptions = {}): UseChallengesReturn {
-  const [challenges, setChallenges] = useState<PredictionChallenge[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  const fetchChallenges = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      let query = supabase
-        .from('prediction_challenges')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (options.celebrityId) {
-        query = query.eq('celebrity_id', options.celebrityId);
-      }
-      if (options.status) {
-        query = query.eq('status', options.status);
-      }
-      if (options.limit) {
-        query = query.limit(options.limit);
-      }
-
-      const { data, error: fetchError } = await query;
-
-      if (fetchError) {
-        throw fetchError;
-      }
-
-      setChallenges(data as PredictionChallenge[]);
-    } catch (err) {
-      setError(err as Error);
-    } finally {
-      setLoading(false);
-    }
-  }, [options.celebrityId, options.status, options.limit]);
-
-  useEffect(() => {
-    fetchChallenges();
-  }, [fetchChallenges]);
-
-  return {
-    challenges,
-    loading,
-    error,
-    refetch: fetchChallenges,
   };
 }
 

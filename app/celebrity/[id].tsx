@@ -1,334 +1,199 @@
-// StarTrade - Celebrity Detail Screen
-// FOR ENTERTAINMENT PURPOSES ONLY - All values are fictional
-import { View, Text, ScrollView, Pressable, ActivityIndicator, Image } from 'react-native';
-import { useState } from 'react';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCelebrity, useChallenges, PredictionChallenge } from '@/hooks/useMarkets';
-import { useAuthStore } from '@/stores/authStore';
-import PredictionSlip from '@/components/PredictionSlip';
+// StarTrade - Celebrity Markets Screen
+// Shows all markets for a specific celebrity
+import { View, Text, ScrollView, Pressable, ActivityIndicator, Image, RefreshControl } from 'react-native';
+import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { useState, useCallback } from 'react';
+import { useCelebrity, useMarkets, Market } from '@/hooks/useMarkets';
 
 export default function CelebrityDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { celebrity, loading, error } = useCelebrity(id);
-  const { challenges } = useChallenges({ celebrityId: id });
-  const user = useAuthStore((state) => state.user);
-  const [selectedChallenge, setSelectedChallenge] = useState<PredictionChallenge | null>(null);
-  const [selectedPrediction, setSelectedPrediction] = useState<'YES' | 'NO' | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  
+  const { celebrity, loading: celebLoading, refetch: refetchCeleb } = useCelebrity(id || '');
+  const { markets, loading: marketsLoading, refresh: refreshMarkets } = useMarkets({
+    celebrityId: id,
+    status: 'ACTIVE',
+  });
 
-  if (loading) {
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([refetchCeleb(), refreshMarkets()]);
+    setRefreshing(false);
+  }, [refetchCeleb, refreshMarkets]);
+
+  const loading = celebLoading || marketsLoading;
+
+  if (loading && !refreshing) {
     return (
-      <View className="flex-1 bg-dark-950 items-center justify-center">
+      <View style={{ flex: 1, backgroundColor: '#0a0a0f', alignItems: 'center', justifyContent: 'center' }}>
+        <Stack.Screen options={{ title: 'Loading...', headerShown: true, headerStyle: { backgroundColor: '#0a0a0f' }, headerTintColor: 'white' }} />
         <ActivityIndicator size="large" color="#8b5cf6" />
       </View>
     );
   }
 
-  if (error || !celebrity) {
+  if (!celebrity) {
     return (
-      <View className="flex-1 bg-dark-950 items-center justify-center px-4">
-        <Text className="text-red-400 text-center mb-4">Failed to load celebrity</Text>
+      <View style={{ flex: 1, backgroundColor: '#0a0a0f', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <Stack.Screen options={{ title: 'Not Found', headerShown: true, headerStyle: { backgroundColor: '#0a0a0f' }, headerTintColor: 'white' }} />
+        <Text style={{ color: '#f87171', textAlign: 'center' }}>Celebrity not found</Text>
         <Pressable 
           onPress={() => router.back()}
-          className="bg-dark-800 px-6 py-3 rounded-lg"
+          style={{ marginTop: 16, backgroundColor: '#8b5cf6', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 }}
         >
-          <Text className="text-white">Go Back</Text>
+          <Text style={{ color: 'white', fontWeight: '600' }}>Go Back</Text>
         </Pressable>
       </View>
     );
   }
 
   const metrics = celebrity.metrics || {};
-  const priceChange = celebrity.price_change_24h || 0;
-  const isPositive = priceChange >= 0;
-
-  // Format large numbers
-  const formatNumber = (num: number) => {
-    if (num >= 1000000000) return `${(num / 1000000000).toFixed(1)}B`;
-    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
-    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
-    return num.toString();
-  };
 
   return (
-    <View className="flex-1 bg-dark-950">
-      {/* Header */}
-      <View className="flex-row items-center px-4 pt-14 pb-4">
-        <Pressable 
-          onPress={() => router.back()}
-          className="w-10 h-10 items-center justify-center"
-        >
-          <Text className="text-white text-2xl">←</Text>
-        </Pressable>
-        <View className="flex-1" />
-        <Pressable className="w-10 h-10 items-center justify-center">
-          <Text className="text-white text-xl">⋮</Text>
-        </Pressable>
-      </View>
+    <View style={{ flex: 1, backgroundColor: '#0a0a0f' }}>
+      <Stack.Screen 
+        options={{ 
+          title: celebrity.name,
+          headerShown: true,
+          headerStyle: { backgroundColor: '#0a0a0f' },
+          headerTintColor: 'white',
+        }} 
+      />
 
-      <ScrollView className="flex-1 px-4">
+      <ScrollView 
+        style={{ flex: 1 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8b5cf6" />
+        }
+      >
         {/* Celebrity Header */}
-        <View className="items-center mb-6">
-          <View className="w-24 h-24 bg-dark-700 rounded-full items-center justify-center mb-4 overflow-hidden">
+        <View style={{ alignItems: 'center', padding: 24 }}>
+          <View style={{
+            width: 100,
+            height: 100,
+            backgroundColor: '#2a2a3a',
+            borderRadius: 50,
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: 16,
+            overflow: 'hidden',
+          }}>
             {celebrity.image_url ? (
               <Image 
                 source={{ uri: celebrity.image_url }} 
-                className="w-full h-full"
+                style={{ width: '100%', height: '100%' }}
                 resizeMode="cover"
               />
             ) : (
-              <Text className="text-white text-3xl font-bold">
+              <Text style={{ color: 'white', fontSize: 40, fontWeight: 'bold' }}>
                 {celebrity.name.charAt(0)}
               </Text>
             )}
           </View>
-          <Text className="text-white text-2xl font-bold mb-1">{celebrity.name}</Text>
-          <View className="bg-primary-500/20 px-3 py-1 rounded-full">
-            <Text className="text-primary-400 text-sm">{celebrity.category}</Text>
+          <Text style={{ color: 'white', fontSize: 24, fontWeight: 'bold' }}>{celebrity.name}</Text>
+          <View style={{ backgroundColor: 'rgba(139, 92, 246, 0.2)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 20, marginTop: 8 }}>
+            <Text style={{ color: '#a78bfa', fontWeight: '500' }}>{celebrity.category}</Text>
           </View>
         </View>
 
-        {/* Entertainment Disclaimer */}
-        <View className="bg-yellow-500/10 rounded-lg px-3 py-2 mb-4">
-          <Text className="text-yellow-400 text-xs text-center">
-            For entertainment only. All share prices are fictional.
-          </Text>
-        </View>
-
-        {/* Fictional Share Price */}
-        <View className="bg-dark-900 rounded-xl p-4 mb-4">
-          <Text className="text-gray-400 text-sm mb-2 text-center">Fictional Share Price</Text>
-          <Text className="text-white text-4xl font-bold text-center">
-            {celebrity.share_price?.toFixed(2)} tokens
-          </Text>
-          <View className={`flex-row items-center justify-center mt-2 px-3 py-1 rounded-full self-center ${
-            isPositive ? 'bg-green-500/20' : 'bg-red-500/20'
-          }`}>
-            <Text className={`font-medium ${
-              isPositive ? 'text-green-400' : 'text-red-400'
-            }`}>
-              {isPositive ? '↑' : '↓'} {Math.abs(priceChange).toFixed(1)}% today
-            </Text>
-          </View>
-        </View>
-
-        {/* Career Performance Score */}
-        <View className="bg-dark-900 rounded-xl p-4 mb-4">
-          <View className="flex-row justify-between items-center mb-3">
-            <Text className="text-gray-400">Career Performance Score</Text>
-            <Text className="text-primary-400 text-2xl font-bold">{celebrity.career_score}/100</Text>
-          </View>
-          {/* Score Bar */}
-          <View className="h-3 bg-dark-700 rounded-full overflow-hidden">
-            <View 
-              className={`h-full rounded-full ${
-                celebrity.career_score >= 80 ? 'bg-green-500' :
-                celebrity.career_score >= 60 ? 'bg-yellow-500' :
-                celebrity.career_score >= 40 ? 'bg-orange-500' : 'bg-red-500'
-              }`}
-              style={{ width: `${celebrity.career_score}%` }}
-            />
-          </View>
-          <Text className="text-gray-500 text-xs mt-2 text-center">
-            Based on public entertainment metrics (fictional algorithm)
-          </Text>
-        </View>
-
-        {/* Bio */}
-        {celebrity.bio && (
-          <View className="bg-dark-900 rounded-xl p-4 mb-4">
-            <Text className="text-gray-400 text-sm mb-2">About</Text>
-            <Text className="text-white leading-6">{celebrity.bio}</Text>
+        {/* Metrics */}
+        {Object.keys(metrics).length > 0 && (
+          <View style={{ paddingHorizontal: 16, marginBottom: 24 }}>
+            <Text style={{ color: '#9ca3af', fontSize: 14, marginBottom: 12 }}>Stats</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+              {metrics.instagram_followers && (
+                <View style={{ backgroundColor: '#1a1a24', borderRadius: 12, padding: 12, minWidth: '45%', flex: 1 }}>
+                  <Text style={{ color: '#6b7280', fontSize: 12 }}>Instagram</Text>
+                  <Text style={{ color: 'white', fontSize: 18, fontWeight: 'bold' }}>
+                    {formatNumber(metrics.instagram_followers)}
+                  </Text>
+                </View>
+              )}
+              {metrics.spotify_streams && (
+                <View style={{ backgroundColor: '#1a1a24', borderRadius: 12, padding: 12, minWidth: '45%', flex: 1 }}>
+                  <Text style={{ color: '#6b7280', fontSize: 12 }}>Spotify Streams</Text>
+                  <Text style={{ color: 'white', fontSize: 18, fontWeight: 'bold' }}>
+                    {formatNumber(metrics.spotify_streams)}
+                  </Text>
+                </View>
+              )}
+              {metrics.trend_score && (
+                <View style={{ backgroundColor: '#1a1a24', borderRadius: 12, padding: 12, minWidth: '45%', flex: 1 }}>
+                  <Text style={{ color: '#6b7280', fontSize: 12 }}>Trend Score</Text>
+                  <Text style={{ color: metrics.trend_score >= 70 ? '#22c55e' : '#facc15', fontSize: 18, fontWeight: 'bold' }}>
+                    {metrics.trend_score}
+                  </Text>
+                </View>
+              )}
+            </View>
           </View>
         )}
 
-        {/* Public Entertainment Metrics */}
-        <View className="bg-dark-900 rounded-xl p-4 mb-4">
-          <Text className="text-gray-400 text-sm mb-3">Entertainment Metrics</Text>
-          <View className="gap-3">
-            {metrics.spotify_streams && (
-              <View className="flex-row justify-between">
-                <Text className="text-gray-400">Spotify Streams</Text>
-                <Text className="text-white font-medium">{formatNumber(metrics.spotify_streams)}</Text>
-              </View>
-            )}
-            {metrics.youtube_views && (
-              <View className="flex-row justify-between">
-                <Text className="text-gray-400">YouTube Views</Text>
-                <Text className="text-white font-medium">{formatNumber(metrics.youtube_views)}</Text>
-              </View>
-            )}
-            {metrics.instagram_followers && (
-              <View className="flex-row justify-between">
-                <Text className="text-gray-400">Instagram Followers</Text>
-                <Text className="text-white font-medium">{formatNumber(metrics.instagram_followers)}</Text>
-              </View>
-            )}
-            {metrics.twitter_followers && (
-              <View className="flex-row justify-between">
-                <Text className="text-gray-400">Twitter/X Followers</Text>
-                <Text className="text-white font-medium">{formatNumber(metrics.twitter_followers)}</Text>
-              </View>
-            )}
-            {metrics.engagement_rate && (
-              <View className="flex-row justify-between">
-                <Text className="text-gray-400">Engagement Rate</Text>
-                <Text className="text-white font-medium">{metrics.engagement_rate}%</Text>
-              </View>
-            )}
-            {metrics.trend_score && (
-              <View className="flex-row justify-between">
-                <Text className="text-gray-400">Trend Score</Text>
-                <Text className={`font-medium ${
-                  metrics.trend_score >= 80 ? 'text-green-400' : 
-                  metrics.trend_score >= 50 ? 'text-yellow-400' : 'text-red-400'
-                }`}>{metrics.trend_score}</Text>
-              </View>
-            )}
-            {metrics.sentiment_score !== undefined && (
-              <View className="flex-row justify-between">
-                <Text className="text-gray-400">Fan Sentiment</Text>
-                <Text className={`font-medium ${
-                  metrics.sentiment_score >= 50 ? 'text-green-400' : 
-                  metrics.sentiment_score >= 0 ? 'text-yellow-400' : 'text-red-400'
-                }`}>{metrics.sentiment_score > 0 ? '+' : ''}{metrics.sentiment_score}</Text>
-              </View>
-            )}
-          </View>
-          <Text className="text-gray-600 text-xs mt-3 text-center">
-            Data from public APIs. For entertainment only.
+        {/* Markets Section */}
+        <View style={{ paddingHorizontal: 16 }}>
+          <Text style={{ color: 'white', fontSize: 20, fontWeight: 'bold', marginBottom: 12 }}>
+            Active Markets ({markets.length})
           </Text>
-        </View>
-
-        {/* Collect Fictional Shares Button */}
-        <Pressable
-          onPress={() => user ? null : router.push('/auth')} // TODO: Add buy modal
-          className="bg-primary-500 rounded-xl py-4 mb-4"
-        >
-          <Text className="text-white text-center font-bold text-lg">
-            {user ? 'Collect Fictional Shares' : 'Sign In to Collect'}
-          </Text>
-        </Pressable>
-
-        {/* Prediction Challenges */}
-        {challenges.length > 0 && (
-          <View className="mb-4">
-            <Text className="text-white text-xl font-bold mb-3">Prediction Challenges</Text>
-            <Text className="text-gray-500 text-xs mb-3">
-              Test your prediction skills - uses fan tokens only, not real money
-            </Text>
-            {challenges.map((challenge) => (
-              <ChallengeCard
-                key={challenge.id}
-                challenge={challenge}
-                onSelect={(prediction) => {
-                  setSelectedChallenge(challenge);
-                  setSelectedPrediction(prediction);
-                }}
+          
+          {markets.length === 0 ? (
+            <View style={{ backgroundColor: '#1a1a24', borderRadius: 12, padding: 24, alignItems: 'center' }}>
+              <Text style={{ color: '#9ca3af' }}>No active markets</Text>
+            </View>
+          ) : (
+            markets.map((market) => (
+              <MarketCard 
+                key={market.id} 
+                market={market} 
+                onPress={() => router.push(`/market/${market.id}` as any)}
               />
-            ))}
-          </View>
-        )}
+            ))
+          )}
+        </View>
 
-        <View className="h-32" />
+        <View style={{ height: 32 }} />
       </ScrollView>
-
-      {/* Prediction Slip */}
-      {selectedChallenge && selectedPrediction && (
-        <PredictionSlip
-          challenge={selectedChallenge}
-          prediction={selectedPrediction}
-          sentiment={selectedPrediction === 'YES' 
-            ? selectedChallenge.fan_sentiment.yes 
-            : selectedChallenge.fan_sentiment.no}
-          onClose={() => {
-            setSelectedChallenge(null);
-            setSelectedPrediction(null);
-          }}
-        />
-      )}
     </View>
   );
 }
 
-interface ChallengeCardProps {
-  challenge: PredictionChallenge;
-  onSelect: (prediction: 'YES' | 'NO') => void;
+function formatNumber(num: number): string {
+  if (num >= 1000000000) return `${(num / 1000000000).toFixed(1)}B`;
+  if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
+  if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
+  return num.toString();
 }
 
-function ChallengeCard({ challenge, onSelect }: ChallengeCardProps) {
-  const sentiment = challenge.fan_sentiment || { yes: 50, no: 50 };
-  const endsDate = new Date(challenge.challenge_ends_at);
-  const isEnding = endsDate.getTime() - Date.now() < 24 * 60 * 60 * 1000;
-  const isClosed = challenge.status !== 'ACTIVE';
+function MarketCard({ market, onPress }: { market: Market; onPress: () => void }) {
+  const yesOdds = market.yes_odds / 100;
+  const noOdds = market.no_odds / 100;
 
   return (
-    <View className="bg-dark-900 rounded-xl p-4 mb-3 border border-dark-800">
-      {/* Category & Status */}
-      <View className="flex-row justify-between items-center mb-2">
-        <View className="bg-primary-500/20 px-2 py-1 rounded-full">
-          <Text className="text-primary-400 text-xs">{challenge.category}</Text>
+    <Pressable
+      onPress={onPress}
+      style={{
+        backgroundColor: '#1a1a24',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: '#2a2a3a',
+      }}
+    >
+      <Text style={{ color: 'white', fontSize: 16, fontWeight: '600', marginBottom: 12 }}>
+        {market.title}
+      </Text>
+
+      <View style={{ flexDirection: 'row', gap: 12 }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(34, 197, 94, 0.1)', borderRadius: 8, padding: 8, alignItems: 'center' }}>
+          <Text style={{ color: '#22c55e', fontSize: 18, fontWeight: 'bold' }}>{yesOdds}%</Text>
+          <Text style={{ color: '#6b7280', fontSize: 11 }}>YES</Text>
         </View>
-        {isEnding && !isClosed && (
-          <View className="bg-yellow-500/20 px-2 py-1 rounded-full">
-            <Text className="text-yellow-400 text-xs">Ending Soon</Text>
-          </View>
-        )}
-        {isClosed && (
-          <View className="bg-red-500/20 px-2 py-1 rounded-full">
-            <Text className="text-red-400 text-xs">Closed</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Title */}
-      <Text className="text-white font-medium mb-3">{challenge.title}</Text>
-
-      {/* Fan Sentiment - NOT odds */}
-      <View className="flex-row gap-2 mb-3">
-        <Pressable
-          onPress={() => !isClosed && onSelect('YES')}
-          disabled={isClosed}
-          className={`flex-1 rounded-lg p-3 items-center bg-dark-800 ${isClosed ? 'opacity-50' : 'active:opacity-80'}`}
-        >
-          <Text className="text-gray-400 text-xs mb-1">Fans say Yes</Text>
-          <Text className="text-green-400 text-xl font-bold">{sentiment.yes}%</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => !isClosed && onSelect('NO')}
-          disabled={isClosed}
-          className={`flex-1 rounded-lg p-3 items-center bg-dark-800 ${isClosed ? 'opacity-50' : 'active:opacity-80'}`}
-        >
-          <Text className="text-gray-400 text-xs mb-1">Fans say No</Text>
-          <Text className="text-red-400 text-xl font-bold">{sentiment.no}%</Text>
-        </Pressable>
-      </View>
-
-      {/* Info */}
-      <View className="flex-row justify-between pt-2 border-t border-dark-800">
-        <Text className="text-gray-500 text-xs">
-          {challenge.total_predictions} predictions
-        </Text>
-        <Text className="text-gray-500 text-xs">
-          Ends: {endsDate.toLocaleDateString()}
-        </Text>
-      </View>
-
-      {/* Resolved Outcome */}
-      {challenge.resolved_outcome !== null && (
-        <View className={`mt-3 rounded-lg p-2 ${
-          challenge.resolved_outcome ? 'bg-green-500/20' : 'bg-red-500/20'
-        }`}>
-          <Text className="text-center">
-            <Text className="text-gray-300 text-sm">Outcome: </Text>
-            <Text className={`font-bold ${
-              challenge.resolved_outcome ? 'text-green-400' : 'text-red-400'
-            }`}>
-              {challenge.resolved_outcome ? 'YES' : 'NO'}
-            </Text>
-          </Text>
+        <View style={{ flex: 1, backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 8, padding: 8, alignItems: 'center' }}>
+          <Text style={{ color: '#ef4444', fontSize: 18, fontWeight: 'bold' }}>{noOdds}%</Text>
+          <Text style={{ color: '#6b7280', fontSize: 11 }}>NO</Text>
         </View>
-      )}
-    </View>
+      </View>
+    </Pressable>
   );
 }

@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS user_profiles (
 
 -- =====================================================
 -- CELEBRITIES TABLE
--- Public figures with social metrics for market creation
+-- Entertainment figures linked to markets
 -- =====================================================
 CREATE TABLE IF NOT EXISTS celebrities (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS celebrities (
     image_url TEXT,
     category TEXT NOT NULL DEFAULT 'Music' CHECK (category IN ('Music', 'Film', 'Sports', 'Social Media', 'TV', 'Gaming')),
     bio TEXT,
+    -- Real metrics for AI odds calculation
     metrics JSONB NOT NULL DEFAULT '{
         "spotify_streams": 0,
         "youtube_views": 0,
@@ -63,7 +64,6 @@ CREATE TABLE IF NOT EXISTS celebrities (
         "instagram_followers": 0,
         "twitter_followers": 0,
         "tiktok_followers": 0,
-        "engagement_rate": 0,
         "trend_score": 50,
         "sentiment_score": 0
     }'::jsonb,
@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS markets (
     resolution_notes TEXT,
     resolved_by UUID REFERENCES auth.users(id),
     resolved_at TIMESTAMPTZ,
+    -- AI generation metadata
     ai_generated BOOLEAN DEFAULT false,
     ai_confidence INTEGER CHECK (ai_confidence >= 0 AND ai_confidence <= 100),
     ai_reasoning TEXT,

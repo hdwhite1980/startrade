@@ -1,3 +1,3 @@
 export { default as BetSlip } from './BetSlip';
 export { default as Deposit } from './Deposit';
-export { default as PredictionSlip } from './PredictionSlip';
+export { default as IdentityVerification } from './IdentityVerification';

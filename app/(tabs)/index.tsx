@@ -1,233 +1,394 @@
-// StarTrade - Fan Market Screen
-// FOR ENTERTAINMENT PURPOSES ONLY - All values are fictional
-import { View, Text, ScrollView, Pressable, ActivityIndicator, RefreshControl, Image } from 'react-native';
-import { useState, useCallback } from 'react';
+// StarTrade - 3 Curated Markets Home Screen
+// Weekly / Mid-Term / Yearly prediction markets
+import { View, Text, ScrollView, Pressable, ActivityIndicator, RefreshControl, Dimensions } from 'react-native';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'expo-router';
-import { useCelebrities, Celebrity } from '@/hooks/useMarkets';
+import { supabase } from '@/lib/supabase';
+import { useAuthStore } from '@/stores/authStore';
+import { LinearGradient } from 'expo-linear-gradient';
 
-const CATEGORIES = ['All', 'Music', 'Film', 'Sports', 'Social Media', 'TV', 'Gaming'];
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-export default function FanMarketScreen() {
-  const [selectedCategory, setSelectedCategory] = useState('All');
+interface Market {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  tier: 'WEEKLY' | 'MIDTERM' | 'YEARLY';
+  status: string;
+  yes_odds: number;
+  no_odds: number;
+  yes_pool: number;
+  no_pool: number;
+  total_volume: number;
+  total_bets: number;
+  closes_at: string;
+  resolves_at: string;
+  details_json: {
+    summary: string;
+    key_dates: Array<{ date: string; event: string }>;
+    sources: Array<{ name: string; url: string; excerpt: string }>;
+    latest_updates: Array<{ date: string; update: string; source: string }>;
+    resolution_criteria: string;
+  };
+  celebrity?: {
+    name: string;
+    image_url: string;
+    category: string;
+  };
+}
+
+const TIER_CONFIG: Record<string, { label: string; color: string; gradient: [string, string]; description: string }> = {
+  WEEKLY: {
+    label: '🔥 This Week',
+    color: '#ef4444',
+    gradient: ['#ef4444', '#dc2626'],
+    description: 'Resolves in ~7 days',
+  },
+  MIDTERM: {
+    label: '📊 Mid-Term',
+    color: '#8b5cf6',
+    gradient: ['#8b5cf6', '#7c3aed'],
+    description: 'Resolves in 2-3 months',
+  },
+  YEARLY: {
+    label: '🎯 The Big One',
+    color: '#f59e0b',
+    gradient: ['#f59e0b', '#d97706'],
+    description: 'Resolves in ~1 year',
+  },
+};
+
+export default function HomeScreen() {
+  const [markets, setMarkets] = useState<Market[]>([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const { user } = useAuthStore();
+  const [profile, setProfile] = useState<any>(null);
 
-  const { celebrities, loading, error, refetch } = useCelebrities({
-    category: selectedCategory === 'All' ? undefined : selectedCategory,
-  });
+  const fetchMarkets = async () => {
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('markets')
+        .select('*, celebrity:celebrities(*)')
+        .eq('status', 'ACTIVE')
+        .not('tier', 'is', null)
+        .order('tier');
+
+      if (fetchError) throw fetchError;
+      setMarkets(data || []);
+      setError(null);
+    } catch (e) {
+      console.error('Error fetching markets:', e);
+      setError('Failed to load markets');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMarkets();
+  }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refetch();
+    await fetchMarkets();
     setRefreshing(false);
-  }, [refetch]);
+  }, []);
 
-  if (loading && !refreshing) {
+  // Get market by tier
+  const getMarketByTier = (tier: 'WEEKLY' | 'MIDTERM' | 'YEARLY') => {
+    return markets.find(m => m.tier === tier);
+  };
+
+  if (loading) {
     return (
-      <View className="flex-1 bg-dark-950 items-center justify-center">
+      <View style={{ flex: 1, backgroundColor: '#0a0a0f', alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator size="large" color="#8b5cf6" />
-        <Text className="text-gray-400 mt-4">Loading celebrities...</Text>
-      </View>
-    );
-  }
-
-  if (error) {
-    return (
-      <View className="flex-1 bg-dark-950 items-center justify-center px-4">
-        <Text className="text-red-400 text-center">Failed to load fan market</Text>
-        <Pressable 
-          onPress={refetch}
-          className="mt-4 bg-primary-500 px-6 py-3 rounded-lg"
-        >
-          <Text className="text-white font-semibold">Retry</Text>
-        </Pressable>
+        <Text style={{ color: '#9ca3af', marginTop: 16 }}>Loading markets...</Text>
       </View>
     );
   }
 
   return (
-    <View className="flex-1 bg-dark-950 pt-14">
+    <ScrollView 
+      style={{ flex: 1, backgroundColor: '#0a0a0f' }}
+      contentContainerStyle={{ paddingTop: 60, paddingBottom: 32 }}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8b5cf6" />
+      }
+    >
       {/* Header */}
-      <View className="px-4 mb-4">
-        <Text className="text-white text-3xl font-bold">Fan Market</Text>
-        <Text className="text-gray-400 mt-1">Trade fictional celebrity shares</Text>
-      </View>
-
-      {/* Entertainment Disclaimer */}
-      <View className="mx-4 mb-3 bg-primary-500/10 rounded-lg px-3 py-2">
-        <Text className="text-primary-400 text-xs text-center">
-          For entertainment only. All values are fictional.
+      <View style={{ paddingHorizontal: 20, marginBottom: 24 }}>
+        <Text style={{ color: 'white', fontSize: 32, fontWeight: 'bold' }}>StarTrade</Text>
+        <Text style={{ color: '#9ca3af', marginTop: 4, fontSize: 16 }}>
+          3 Questions. Real Stakes. Pick Your Side.
         </Text>
       </View>
 
-      {/* Category Filter */}
-      <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false}
-        className="px-4 mb-4"
-        contentContainerStyle={{ gap: 8 }}
-      >
-        {CATEGORIES.map((category) => (
-          <Pressable
-            key={category}
-            onPress={() => setSelectedCategory(category)}
-            className={`px-4 py-2 rounded-full ${
-              selectedCategory === category 
-                ? 'bg-primary-500' 
-                : 'bg-dark-800'
-            }`}
+      {/* Currency Toggle */}
+      <View style={{ paddingHorizontal: 20, marginBottom: 24 }}>
+        <View style={{ 
+          flexDirection: 'row', 
+          backgroundColor: '#1a1a24', 
+          borderRadius: 12, 
+          padding: 4,
+        }}>
+          <Pressable 
+            style={{ 
+              flex: 1, 
+              paddingVertical: 12, 
+              borderRadius: 10,
+              backgroundColor: profile?.preferred_currency === 'VIRTUAL' ? '#8b5cf6' : 'transparent',
+              alignItems: 'center',
+            }}
           >
-            <Text className={`font-medium ${
-              selectedCategory === category 
-                ? 'text-white' 
-                : 'text-gray-400'
-            }`}>
-              {category}
+            <Text style={{ 
+              color: profile?.preferred_currency === 'VIRTUAL' ? 'white' : '#9ca3af', 
+              fontWeight: '600' 
+            }}>
+              🎮 Virtual (${((profile?.virtual_balance || 100000) / 100).toFixed(0)})
             </Text>
           </Pressable>
-        ))}
-      </ScrollView>
+          <Pressable 
+            style={{ 
+              flex: 1, 
+              paddingVertical: 12, 
+              borderRadius: 10,
+              backgroundColor: profile?.preferred_currency === 'REAL' ? '#22c55e' : 'transparent',
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ 
+              color: profile?.preferred_currency === 'REAL' ? 'white' : '#9ca3af', 
+              fontWeight: '600' 
+            }}>
+              💵 Real USDC (${((profile?.usdc_balance || 0) / 100).toFixed(2)})
+            </Text>
+          </Pressable>
+        </View>
+      </View>
 
-      {/* Celebrities List */}
-      <ScrollView 
-        className="flex-1 px-4"
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#8b5cf6"
-          />
-        }
-      >
-        {celebrities.length === 0 ? (
-          <View className="items-center py-12">
-            <Text className="text-gray-400 text-lg">No celebrities found</Text>
+      {/* The 3 Markets */}
+      {(['WEEKLY', 'MIDTERM', 'YEARLY'] as const).map((tier, index) => {
+        const market = getMarketByTier(tier);
+        const config = TIER_CONFIG[tier];
+
+        return (
+          <View key={tier} style={{ paddingHorizontal: 20, marginBottom: 24 }}>
+            {/* Tier Label */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+              <Text style={{ color: config.color, fontSize: 18, fontWeight: 'bold' }}>
+                {config.label}
+              </Text>
+              <Text style={{ color: '#6b7280', marginLeft: 8, fontSize: 12 }}>
+                {config.description}
+              </Text>
+            </View>
+
+            {market ? (
+              <TierMarketCard market={market} config={config} onPress={() => router.push(`/market/${market.id}` as any)} />
+            ) : (
+              <View style={{ 
+                backgroundColor: '#1a1a24', 
+                borderRadius: 16, 
+                padding: 24, 
+                alignItems: 'center',
+                borderWidth: 2,
+                borderColor: '#2a2a3a',
+                borderStyle: 'dashed',
+              }}>
+                <Text style={{ color: '#6b7280', fontSize: 16 }}>Coming Soon</Text>
+                <Text style={{ color: '#4b5563', fontSize: 14, marginTop: 4 }}>
+                  A new {tier.toLowerCase()} question will be posted shortly
+                </Text>
+              </View>
+            )}
           </View>
-        ) : (
-          celebrities.map((celebrity) => (
-            <CelebrityCard 
-              key={celebrity.id} 
-              celebrity={celebrity} 
-              onPress={() => router.push(`/celebrity/${celebrity.id}` as any)}
-            />
-          ))
-        )}
-        
-        {/* Bottom spacing */}
-        <View className="h-8" />
-      </ScrollView>
-    </View>
+        );
+      })}
+
+      {/* Prize Pool Info */}
+      <View style={{ paddingHorizontal: 20, marginTop: 8 }}>
+        <Pressable
+          onPress={() => router.push('/leaderboard' as any)}
+          style={{
+            backgroundColor: '#1a1a24',
+            borderRadius: 16,
+            padding: 20,
+            borderWidth: 1,
+            borderColor: '#2a2a3a',
+          }}
+        >
+          <Text style={{ color: '#f59e0b', fontSize: 16, fontWeight: 'bold', marginBottom: 8 }}>
+            🏆 Virtual Leaderboard Prizes
+          </Text>
+          <Text style={{ color: '#9ca3af', fontSize: 14, lineHeight: 20 }}>
+            Top 3 virtual players each week win bonuses. Monthly champions win real USDC!
+          </Text>
+          <Text style={{ color: '#8b5cf6', marginTop: 12, fontWeight: '600' }}>
+            View Leaderboard →
+          </Text>
+        </Pressable>
+      </View>
+    </ScrollView>
   );
 }
 
-interface CelebrityCardProps {
-  celebrity: Celebrity;
+interface TierMarketCardProps {
+  market: Market;
+  config: { label: string; color: string; gradient: [string, string]; description: string };
   onPress: () => void;
 }
 
-function CelebrityCard({ celebrity, onPress }: CelebrityCardProps) {
-  const priceChange = celebrity.price_change_24h || 0;
-  const isPositive = priceChange >= 0;
-  const metrics = celebrity.metrics || {};
+function TierMarketCard({ market, config, onPress }: TierMarketCardProps) {
+  const yesOdds = market.yes_odds / 100;
+  const noOdds = market.no_odds / 100;
 
-  // Format large numbers
-  const formatNumber = (num: number) => {
-    if (num >= 1000000000) return `${(num / 1000000000).toFixed(1)}B`;
-    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
-    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
-    return num.toString();
+  // Calculate time remaining
+  const getTimeRemaining = () => {
+    const closes = new Date(market.closes_at);
+    const now = new Date();
+    const diff = closes.getTime() - now.getTime();
+    
+    if (diff <= 0) return 'Closing soon';
+    
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    
+    if (days > 30) {
+      const months = Math.floor(days / 30);
+      return `${months} month${months > 1 ? 's' : ''} left`;
+    }
+    if (days > 0) return `${days}d ${hours}h left`;
+    return `${hours}h left`;
   };
 
   return (
     <Pressable
       onPress={onPress}
-      className="bg-dark-900 rounded-xl p-4 mb-3 border border-dark-800 active:opacity-80"
+      style={{
+        backgroundColor: '#1a1a24',
+        borderRadius: 16,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: config.color + '40',
+      }}
     >
-      <View className="flex-row items-center mb-3">
-        {/* Avatar */}
-        <View className="w-14 h-14 bg-dark-700 rounded-full items-center justify-center mr-3 overflow-hidden">
-          {celebrity.image_url ? (
-            <Image 
-              source={{ uri: celebrity.image_url }} 
-              className="w-full h-full"
-              resizeMode="cover"
-            />
-          ) : (
-            <Text className="text-white text-xl font-bold">
-              {celebrity.name.charAt(0)}
-            </Text>
-          )}
-        </View>
-
-        {/* Name & Category */}
-        <View className="flex-1">
-          <Text className="text-white font-semibold text-lg">{celebrity.name}</Text>
-          <View className="flex-row items-center mt-1">
-            <View className="bg-primary-500/20 px-2 py-0.5 rounded-full mr-2">
-              <Text className="text-primary-400 text-xs">{celebrity.category}</Text>
-            </View>
-            <Text className="text-gray-500 text-xs">Score: {celebrity.career_score}</Text>
-          </View>
-        </View>
-
-        {/* Share Price (Fictional) */}
-        <View className="items-end">
-          <Text className="text-white text-xl font-bold">
-            {celebrity.share_price?.toFixed(2)}
+      {/* Gradient Header */}
+      <LinearGradient
+        colors={config.gradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={{ padding: 16 }}
+      >
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={{ color: 'white', fontSize: 12, fontWeight: '600', opacity: 0.9 }}>
+            {market.category}
           </Text>
-          <Text className="text-gray-500 text-xs">fictional tokens</Text>
-          <View className={`flex-row items-center mt-1 px-2 py-0.5 rounded ${
-            isPositive ? 'bg-green-500/20' : 'bg-red-500/20'
-          }`}>
-            <Text className={`text-sm font-medium ${
-              isPositive ? 'text-green-400' : 'text-red-400'
-            }`}>
-              {isPositive ? '↑' : '↓'} {Math.abs(priceChange).toFixed(1)}%
+          <View style={{ 
+            backgroundColor: 'rgba(255,255,255,0.2)', 
+            paddingHorizontal: 10, 
+            paddingVertical: 4, 
+            borderRadius: 12 
+          }}>
+            <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>
+              ⏱️ {getTimeRemaining()}
             </Text>
           </View>
         </View>
-      </View>
+      </LinearGradient>
 
-      {/* Entertainment Metrics */}
-      <View className="flex-row gap-3 pt-3 border-t border-dark-800">
-        {metrics.spotify_streams && (
-          <View className="flex-1 items-center">
-            <Text className="text-gray-500 text-xs">Streams</Text>
-            <Text className="text-white font-medium">
-              {formatNumber(metrics.spotify_streams)}
+      {/* Content */}
+      <View style={{ padding: 16 }}>
+        {/* Question */}
+        <Text style={{ 
+          color: 'white', 
+          fontSize: 20, 
+          fontWeight: 'bold', 
+          marginBottom: 12,
+          lineHeight: 26,
+        }}>
+          {market.title}
+        </Text>
+
+        {/* Latest Update Preview */}
+        {market.details_json?.latest_updates?.[0] && (
+          <View style={{ 
+            backgroundColor: '#0f0f14', 
+            borderRadius: 8, 
+            padding: 12, 
+            marginBottom: 16,
+            borderLeftWidth: 3,
+            borderLeftColor: config.color,
+          }}>
+            <Text style={{ color: '#9ca3af', fontSize: 12, marginBottom: 4 }}>
+              📰 Latest: {market.details_json.latest_updates[0].source}
+            </Text>
+            <Text style={{ color: '#d1d5db', fontSize: 14 }} numberOfLines={2}>
+              {market.details_json.latest_updates[0].update}
             </Text>
           </View>
         )}
-        {metrics.instagram_followers && (
-          <View className="flex-1 items-center">
-            <Text className="text-gray-500 text-xs">Followers</Text>
-            <Text className="text-white font-medium">
-              {formatNumber(metrics.instagram_followers)}
+
+        {/* Odds */}
+        <View style={{ flexDirection: 'row', gap: 12, marginBottom: 16 }}>
+          <View style={{
+            flex: 1,
+            backgroundColor: 'rgba(34, 197, 94, 0.1)',
+            borderRadius: 12,
+            padding: 16,
+            alignItems: 'center',
+            borderWidth: 1,
+            borderColor: 'rgba(34, 197, 94, 0.3)',
+          }}>
+            <Text style={{ color: '#6b7280', fontSize: 14, marginBottom: 4 }}>YES</Text>
+            <Text style={{ color: '#22c55e', fontSize: 32, fontWeight: 'bold' }}>{yesOdds}%</Text>
+            <Text style={{ color: '#6b7280', fontSize: 12, marginTop: 4 }}>
+              ${(market.yes_pool / 100).toFixed(0)} pool
             </Text>
           </View>
-        )}
-        {metrics.trend_score && (
-          <View className="flex-1 items-center">
-            <Text className="text-gray-500 text-xs">Trend</Text>
-            <Text className={`font-medium ${
-              metrics.trend_score >= 80 ? 'text-green-400' : 
-              metrics.trend_score >= 50 ? 'text-yellow-400' : 'text-red-400'
-            }`}>
-              {metrics.trend_score}
+          <View style={{
+            flex: 1,
+            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+            borderRadius: 12,
+            padding: 16,
+            alignItems: 'center',
+            borderWidth: 1,
+            borderColor: 'rgba(239, 68, 68, 0.3)',
+          }}>
+            <Text style={{ color: '#6b7280', fontSize: 14, marginBottom: 4 }}>NO</Text>
+            <Text style={{ color: '#ef4444', fontSize: 32, fontWeight: 'bold' }}>{noOdds}%</Text>
+            <Text style={{ color: '#6b7280', fontSize: 12, marginTop: 4 }}>
+              ${(market.no_pool / 100).toFixed(0)} pool
             </Text>
           </View>
-        )}
-        {metrics.sentiment_score !== undefined && (
-          <View className="flex-1 items-center">
-            <Text className="text-gray-500 text-xs">Sentiment</Text>
-            <Text className={`font-medium ${
-              metrics.sentiment_score >= 50 ? 'text-green-400' : 
-              metrics.sentiment_score >= 0 ? 'text-yellow-400' : 'text-red-400'
-            }`}>
-              {metrics.sentiment_score > 0 ? '+' : ''}{metrics.sentiment_score}
+        </View>
+
+        {/* Stats Row */}
+        <View style={{ 
+          flexDirection: 'row', 
+          justifyContent: 'space-between', 
+          borderTopWidth: 1, 
+          borderTopColor: '#2a2a3a',
+          paddingTop: 12,
+        }}>
+          <View style={{ alignItems: 'center' }}>
+            <Text style={{ color: '#6b7280', fontSize: 11 }}>TOTAL BETS</Text>
+            <Text style={{ color: 'white', fontWeight: '600' }}>{market.total_bets}</Text>
+          </View>
+          <View style={{ alignItems: 'center' }}>
+            <Text style={{ color: '#6b7280', fontSize: 11 }}>VOLUME</Text>
+            <Text style={{ color: 'white', fontWeight: '600' }}>${(market.total_volume / 100).toFixed(0)}</Text>
+          </View>
+          <View style={{ alignItems: 'center' }}>
+            <Text style={{ color: config.color, fontSize: 14, fontWeight: '600' }}>
+              View Details →
             </Text>
           </View>
-        )}
+        </View>
       </View>
     </Pressable>
   );

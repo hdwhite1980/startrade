@@ -3,30 +3,28 @@
 import { View, Text, ScrollView, Pressable, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/stores/authStore';
-import { usePortfolioStats, useUserStats } from '@/hooks/useBets';
-import { useWallet } from '@/hooks/useWallet';
+import { usePortfolioStats } from '@/hooks/useBets';
+import { IdentityVerification } from '@/components';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const signOut = useAuthStore((state) => state.signOut);
   const { stats, loading } = usePortfolioStats(user?.id || '');
-  const { profile } = useUserStats();
-  const { address: walletAddress } = useWallet();
 
   if (!user) {
     return (
-      <View className="flex-1 bg-dark-950 items-center justify-center px-6">
-        <Text className="text-4xl mb-4">👤</Text>
-        <Text className="text-white text-2xl font-bold mb-2">My Account</Text>
-        <Text className="text-gray-400 text-center mb-6">
+      <View style={{ flex: 1, backgroundColor: '#0a0a0f', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
+        <Text style={{ fontSize: 40, marginBottom: 16 }}>👤</Text>
+        <Text style={{ color: 'white', fontSize: 24, fontWeight: 'bold', marginBottom: 8 }}>My Account</Text>
+        <Text style={{ color: '#9ca3af', textAlign: 'center', marginBottom: 24 }}>
           Sign in to access your wallet and betting profile
         </Text>
         <Pressable
           onPress={() => router.push('/auth')}
-          className="bg-primary-500 px-8 py-4 rounded-xl"
+          style={{ backgroundColor: '#8b5cf6', paddingHorizontal: 32, paddingVertical: 16, borderRadius: 12 }}
         >
-          <Text className="text-white font-semibold text-lg">Sign In</Text>
+          <Text style={{ color: 'white', fontWeight: '600', fontSize: 18 }}>Sign In</Text>
         </Pressable>
       </View>
     );
@@ -34,16 +32,16 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 bg-dark-950 items-center justify-center">
+      <View style={{ flex: 1, backgroundColor: '#0a0a0f', alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator size="large" color="#8b5cf6" />
       </View>
     );
   }
 
   // Determine badges based on real betting performance
-  const badges = [];
+  const badges: string[] = [];
   if (stats.activeBets >= 3) badges.push('🎯 Active Bettor');
-  if (stats.winRate >= 60) badges.push('�� Winning Streak');
+  if (stats.winRate >= 60) badges.push('🔥 Winning Streak');
   if (stats.totalBets >= 10) badges.push('📈 Experienced');
   if (stats.totalBets >= 50) badges.push('💎 Veteran');
   if (stats.netProfit > 0) badges.push('💰 Profitable');
@@ -60,78 +58,67 @@ export default function ProfileScreen() {
   };
 
   return (
-    <View className="flex-1 bg-dark-950 pt-14">
-      <ScrollView className="flex-1 px-4">
+    <View style={{ flex: 1, backgroundColor: '#0a0a0f', paddingTop: 56 }}>
+      <ScrollView style={{ flex: 1, paddingHorizontal: 16 }}>
         {/* Profile Header */}
-        <View className="items-center mb-6">
-          <View className="w-24 h-24 bg-primary-500/20 rounded-full items-center justify-center mb-4">
-            <Text className="text-4xl">
+        <View style={{ alignItems: 'center', marginBottom: 24 }}>
+          <View style={{ width: 96, height: 96, backgroundColor: 'rgba(139, 92, 246, 0.2)', borderRadius: 48, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+            <Text style={{ fontSize: 40 }}>
               {stats.rankTitle === 'Legend' ? '👑' :
-               stats.rankTitle === 'High Roller' ? '💎' :
-               stats.rankTitle === 'Pro Bettor' ? '🎯' :
-               stats.rankTitle === 'Rising Star' ? '⭐' : '🎮'}
+               stats.rankTitle === 'Veteran' ? '💎' :
+               stats.rankTitle === 'Regular' ? '🎯' :
+               stats.rankTitle === 'Newcomer' ? '⭐' : '��'}
             </Text>
           </View>
-          <Text className="text-white text-2xl font-bold mb-1">
+          <Text style={{ color: 'white', fontSize: 24, fontWeight: 'bold', marginBottom: 4 }}>
             {user.email?.split('@')[0] || 'Bettor'}
           </Text>
-          <View className="bg-primary-500/20 px-3 py-1 rounded-full">
-            <Text className="text-primary-400 font-medium">{stats.rankTitle}</Text>
+          <View style={{ backgroundColor: 'rgba(139, 92, 246, 0.2)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 20 }}>
+            <Text style={{ color: '#a78bfa', fontWeight: '500' }}>{stats.rankTitle}</Text>
           </View>
         </View>
 
-        {/* Wallet Address */}
-        {walletAddress && (
-          <View className="bg-dark-900 rounded-xl p-4 mb-4">
-            <Text className="text-gray-400 text-sm mb-2">Wallet Address</Text>
-            <Text className="text-white font-mono text-sm" numberOfLines={1}>
-              {walletAddress.slice(0, 10)}...{walletAddress.slice(-8)}
-            </Text>
-            <Text className="text-gray-600 text-xs mt-1">Base Network (Coinbase L2)</Text>
-          </View>
-        )}
-
         {/* Balance Overview */}
-        <View className="bg-gradient-to-br from-primary-600/20 to-primary-800/20 rounded-xl p-6 mb-4 border border-primary-500/20">
-          <Text className="text-gray-400 text-sm mb-2">Total Balance</Text>
-          <Text className="text-white text-4xl font-bold">
+        <View style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', borderRadius: 12, padding: 24, marginBottom: 16, borderWidth: 1, borderColor: 'rgba(139, 92, 246, 0.2)' }}>
+          <Text style={{ color: '#9ca3af', fontSize: 14, marginBottom: 8 }}>Total Balance</Text>
+          <Text style={{ color: 'white', fontSize: 36, fontWeight: 'bold' }}>
             ${(stats.usdcBalance + stats.escrowedBalance).toFixed(2)}
           </Text>
-          <View className="flex-row mt-3 gap-4">
+          <View style={{ flexDirection: 'row', marginTop: 12, gap: 16 }}>
             <View>
-              <Text className="text-gray-500 text-xs">Available</Text>
-              <Text className="text-green-400 font-medium">${stats.usdcBalance.toFixed(2)}</Text>
+              <Text style={{ color: '#6b7280', fontSize: 12 }}>Available</Text>
+              <Text style={{ color: '#22c55e', fontWeight: '500' }}>${stats.usdcBalance.toFixed(2)}</Text>
             </View>
             <View>
-              <Text className="text-gray-500 text-xs">In Bets</Text>
-              <Text className="text-yellow-400 font-medium">${stats.escrowedBalance.toFixed(2)}</Text>
+              <Text style={{ color: '#6b7280', fontSize: 12 }}>In Bets</Text>
+              <Text style={{ color: '#facc15', fontWeight: '500' }}>${stats.escrowedBalance.toFixed(2)}</Text>
             </View>
           </View>
         </View>
 
         {/* Stats Grid */}
-        <View className="flex-row flex-wrap gap-3 mb-6">
-          <View className="bg-dark-900 rounded-xl p-4 flex-1 min-w-[45%]">
-            <Text className="text-gray-400 text-sm">Win Rate</Text>
-            <Text className="text-green-400 text-2xl font-bold">
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 24 }}>
+          <View style={{ backgroundColor: '#1a1a24', borderRadius: 12, padding: 16, flex: 1, minWidth: '45%' }}>
+            <Text style={{ color: '#9ca3af', fontSize: 14 }}>Win Rate</Text>
+            <Text style={{ color: '#22c55e', fontSize: 24, fontWeight: 'bold' }}>
               {stats.winRate.toFixed(0)}%
             </Text>
           </View>
-          <View className="bg-dark-900 rounded-xl p-4 flex-1 min-w-[45%]">
-            <Text className="text-gray-400 text-sm">Total Bets</Text>
-            <Text className="text-white text-2xl font-bold">
+          <View style={{ backgroundColor: '#1a1a24', borderRadius: 12, padding: 16, flex: 1, minWidth: '45%' }}>
+            <Text style={{ color: '#9ca3af', fontSize: 14 }}>Total Bets</Text>
+            <Text style={{ color: 'white', fontSize: 24, fontWeight: 'bold' }}>
               {stats.totalBets}
             </Text>
           </View>
-          <View className="bg-dark-900 rounded-xl p-4 flex-1 min-w-[45%]">
-            <Text className="text-gray-400 text-sm">Net Profit</Text>
-            <Text className={`text-2xl font-bold ${stats.netProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+          <View style={{ backgroundColor: '#1a1a24', borderRadius: 12, padding: 16, flex: 1, minWidth: '45%' }}>
+            <Text style={{ color: '#9ca3af', fontSize: 14 }}>Net Profit</Text>
+            <Text style={{ color: stats.netProfit >= 0 ? '#22c55e' : '#ef4444', fontSize: 24, fontWeight: 'bold' }}>
               {stats.netProfit >= 0 ? '+' : ''}${stats.netProfit.toFixed(2)}
             </Text>
           </View>
-          <View className="bg-dark-900 rounded-xl p-4 flex-1 min-w-[45%]">
-            <Text className="text-gray-400 text-sm">Active Bets</Text>
-            <Text className="text-yellow-400 text-2xl font-bold">
+          <View style={{ backgroundColor: '#1a1a24', borderRadius: 12, padding: 16, flex: 1, minWidth: '45%' }}>
+            <Text style={{ color: '#9ca3af', fontSize: 14 }}>Active Bets</Text>
+            <Text style={{ color: '#facc15', fontSize: 24, fontWeight: 'bold' }}>
               {stats.activeBets}
             </Text>
           </View>
@@ -139,82 +126,63 @@ export default function ProfileScreen() {
 
         {/* Achievement Badges */}
         {badges.length > 0 && (
-          <View className="bg-dark-900 rounded-xl p-4 mb-6">
-            <Text className="text-gray-400 text-sm mb-3">Achievements</Text>
-            <View className="flex-row flex-wrap gap-2">
+          <View style={{ backgroundColor: '#1a1a24', borderRadius: 12, padding: 16, marginBottom: 24 }}>
+            <Text style={{ color: '#9ca3af', fontSize: 14, marginBottom: 12 }}>Achievements</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {badges.map((badge, index) => (
-                <View key={index} className="bg-dark-800 px-3 py-2 rounded-lg">
-                  <Text className="text-white text-sm">{badge}</Text>
+                <View key={index} style={{ backgroundColor: '#2a2a3a', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}>
+                  <Text style={{ color: 'white', fontSize: 14 }}>{badge}</Text>
                 </View>
               ))}
             </View>
           </View>
         )}
 
-        {/* Rank Progress */}
-        <View className="bg-dark-900 rounded-xl p-4 mb-6">
-          <Text className="text-gray-400 text-sm mb-3">Rank Progress</Text>
-          <View className="gap-2">
-            {['Rookie', 'Rising Star', 'Pro Bettor', 'High Roller', 'Legend'].map((rank) => {
-              const ranks = ['Rookie', 'Rising Star', 'Pro Bettor', 'High Roller', 'Legend'];
-              const currentIndex = ranks.indexOf(stats.rankTitle);
-              const rankIndex = ranks.indexOf(rank);
-              const isCurrentOrPast = rankIndex <= currentIndex;
-              
-              return (
-                <View key={rank} className="flex-row items-center">
-                  <View className={`w-6 h-6 rounded-full items-center justify-center mr-3 ${
-                    isCurrentOrPast ? 'bg-primary-500' : 'bg-dark-700'
-                  }`}>
-                    {isCurrentOrPast && <Text className="text-white text-xs">✓</Text>}
-                  </View>
-                  <Text className={`${
-                    rank === stats.rankTitle ? 'text-primary-400 font-bold' : 
-                    isCurrentOrPast ? 'text-gray-400' : 'text-gray-600'
-                  }`}>
-                    {rank}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
-        </View>
-
         {/* Deposit / Withdraw Buttons */}
-        <View className="flex-row gap-3 mb-6">
+        <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
           <Pressable
             onPress={() => Alert.alert('Deposit', 'Deposit functionality coming soon!')}
-            className="flex-1 bg-green-500/20 border border-green-500/30 rounded-xl py-4"
+            style={{ flex: 1, backgroundColor: 'rgba(34, 197, 94, 0.2)', borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.3)', borderRadius: 12, paddingVertical: 16 }}
           >
-            <Text className="text-green-400 text-center font-medium">Deposit USDC</Text>
+            <Text style={{ color: '#22c55e', textAlign: 'center', fontWeight: '500' }}>Deposit USDC</Text>
           </Pressable>
           <Pressable
             onPress={() => Alert.alert('Withdraw', 'Withdraw functionality coming soon!')}
-            className="flex-1 bg-blue-500/20 border border-blue-500/30 rounded-xl py-4"
+            style={{ flex: 1, backgroundColor: 'rgba(59, 130, 246, 0.2)', borderWidth: 1, borderColor: 'rgba(59, 130, 246, 0.3)', borderRadius: 12, paddingVertical: 16 }}
           >
-            <Text className="text-blue-400 text-center font-medium">Withdraw</Text>
+            <Text style={{ color: '#3b82f6', textAlign: 'center', fontWeight: '500' }}>Withdraw</Text>
           </Pressable>
+        </View>
+
+        {/* Identity Verification Section */}
+        <View style={{ marginBottom: 24 }}>
+          <Text style={{ color: 'white', fontSize: 18, fontWeight: 'bold', marginBottom: 12 }}>
+            🔐 Identity Verification
+          </Text>
+          <Text style={{ color: '#9ca3af', fontSize: 13, marginBottom: 16 }}>
+            Verify your identity to unlock real USDC betting. Must be 21+.
+          </Text>
+          <IdentityVerification />
         </View>
 
         {/* Sign Out */}
         <Pressable
           onPress={handleSignOut}
-          className="bg-dark-800 rounded-xl py-4 mb-8"
+          style={{ backgroundColor: '#1a1a24', borderRadius: 12, paddingVertical: 16, marginBottom: 32 }}
         >
-          <Text className="text-red-400 text-center font-medium">Sign Out</Text>
+          <Text style={{ color: '#ef4444', textAlign: 'center', fontWeight: '500' }}>Sign Out</Text>
         </Pressable>
 
         {/* Legal Disclaimer */}
-        <View className="bg-dark-900 rounded-xl p-4 mb-8">
-          <Text className="text-gray-500 text-xs text-center leading-5">
+        <View style={{ backgroundColor: '#1a1a24', borderRadius: 12, padding: 16, marginBottom: 32 }}>
+          <Text style={{ color: '#6b7280', fontSize: 12, textAlign: 'center', lineHeight: 20 }}>
             StarTrade is a prediction market platform using real USDC on Base 
             (Coinbase L2). All bets involve real cryptocurrency. Please bet 
-            responsibly and only with funds you can afford to lose. Must be 
-            18+ to participate.
+            responsibly and only with funds you can afford to lose.
           </Text>
         </View>
 
-        <View className="h-8" />
+        <View style={{ height: 32 }} />
       </ScrollView>
     </View>
   );
